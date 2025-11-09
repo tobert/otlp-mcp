@@ -1,12 +1,12 @@
 # otlp-mcp
 
-Expose OTLP (OpenTelemetry Protocol) telemetry to AI agents via MCP (Model Context Protocol).
+**OTLP MCP Server** - Expose OpenTelemetry traces to AI agents via the Model Context Protocol
 
 ## Status
 
-🚧 **In Development** - Bootstrap MVP implementation in progress.
+✅ **MVP Complete** - Bootstrap implementation finished and tested.
 
-See `docs/plans/bootstrap/` for the complete implementation plan.
+See `docs/plans/bootstrap/` for the implementation plan.
 
 ## Vision
 
@@ -25,18 +25,88 @@ Agent (stdio) ←→ MCP Server ←→ Ring Buffer ←→ OTLP gRPC Server ←�
 - Storage: In-memory ring buffer for traces
 - Localhost only, no authentication needed
 
-## Quick Start (Post-MVP)
+## Quick Start
+
+### Build
 
 ```bash
-# Start the server
-otlp-mcp serve
+go build -o otlp-mcp ./cmd/otlp-mcp
+```
 
-# Agent queries for OTLP endpoint via MCP
-# Then runs program:
-OTEL_EXPORTER_OTLP_ENDPOINT=localhost:XXXXX my-program
+### Configure in Claude Code
 
-# Agent queries traces via MCP tools
-# Analyzes, debugs, iterates
+Add to your MCP settings (`~/.config/claude-code/mcp_settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "otlp-mcp": {
+      "command": "/home/atobey/src/otlp-mcp/otlp-mcp",
+      "args": ["serve", "--verbose"]
+    }
+  }
+}
+```
+
+**Important:** Use the absolute path to your built binary.
+
+### Restart Claude Code
+
+After adding the configuration, restart Claude Code to load the MCP server.
+
+### Try It!
+
+In Claude Code, ask:
+
+```
+Use the get_otlp_endpoint tool to find the OTLP address
+```
+
+You'll get back something like:
+```json
+{
+  "endpoint": "localhost:54321",
+  "protocol": "grpc"
+}
+```
+
+Now run an instrumented program:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=localhost:54321 your-program
+```
+
+Then query traces:
+
+```
+Show me recent traces
+```
+
+## MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `get_otlp_endpoint` | Returns OTLP gRPC endpoint address |
+| `get_recent_traces` | Returns N most recent spans (default: 100) |
+| `get_trace_by_id` | Fetches all spans for a specific trace ID |
+| `query_traces` | Filters by service name or span name |
+| `get_stats` | Returns buffer statistics |
+| `clear_traces` | Clears all stored traces |
+
+## Example Workflow
+
+```bash
+# Terminal 1: Claude Code discovers endpoint
+# "Use get_otlp_endpoint tool"
+# Response: localhost:54321
+
+# Terminal 2: Send test span (if you have otel-cli)
+OTEL_EXPORTER_OTLP_ENDPOINT=localhost:54321 \
+  otel-cli span --service my-app --name "test-span"
+
+# Claude Code: Query traces
+# "Show me traces from my-app"
+# "Get statistics on the trace buffer"
 ```
 
 ## Development
