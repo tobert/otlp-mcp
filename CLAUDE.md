@@ -1,6 +1,6 @@
-# CLAUDE.md: LLM Agent Development Protocol
+# BOTS.md: LLM Agent Development Protocol
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to agents working with code in this repository.
 
 ## Project Overview
 
