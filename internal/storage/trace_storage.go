@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -23,19 +22,17 @@ type StoredSpan struct {
 	SpanName    string
 }
 
-// TraceStorage stores and indexes OTLP trace spans.
+// TraceStorage stores OTLP trace spans without content indexes.
+// Queries use position-based ranges with in-memory filtering.
 // It implements the otlpreceiver.SpanReceiver interface.
 type TraceStorage struct {
-	spans      *RingBuffer[*StoredSpan]
-	traceIndex map[string][]*StoredSpan // trace_id -> spans
-	mu         sync.RWMutex              // protects traceIndex
+	spans *RingBuffer[*StoredSpan]
 }
 
 // NewTraceStorage creates a new trace storage with the specified capacity.
 func NewTraceStorage(capacity int) *TraceStorage {
 	return &TraceStorage{
-		spans:      NewRingBuffer[*StoredSpan](capacity),
-		traceIndex: make(map[string][]*StoredSpan),
+		spans: NewRingBuffer[*StoredSpan](capacity),
 	}
 }
 
@@ -65,19 +62,9 @@ func (ts *TraceStorage) ReceiveSpans(ctx context.Context, resourceSpans []*trace
 	return nil
 }
 
-// addSpan adds a span to storage and updates the trace index.
+// addSpan adds a span to storage.
 func (ts *TraceStorage) addSpan(span *StoredSpan) {
 	ts.spans.Add(span)
-
-	// Update trace index
-	ts.mu.Lock()
-	ts.traceIndex[span.TraceID] = append(ts.traceIndex[span.TraceID], span)
-	ts.mu.Unlock()
-
-	// Note: For MVP, the trace index grows unbounded.
-	// This is acceptable for short agent sessions (minutes to hours).
-	// Future enhancement: Track which spans are evicted from ring buffer
-	// and remove them from the index as well.
 }
 
 // GetRecentSpans returns the N most recent spans in chronological order.
@@ -90,20 +77,18 @@ func (ts *TraceStorage) GetAllSpans() []*StoredSpan {
 	return ts.spans.GetAll()
 }
 
-// GetSpansByTraceID returns all spans for a given trace ID.
-// Returns nil if no spans are found for the trace ID.
+// GetSpansByTraceID returns all currently stored spans for a given trace ID.
+// This performs an in-memory scan of all stored spans.
 func (ts *TraceStorage) GetSpansByTraceID(traceID string) []*StoredSpan {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
+	all := ts.spans.GetAll()
+	var result []*StoredSpan
 
-	spans := ts.traceIndex[traceID]
-	if len(spans) == 0 {
-		return nil
+	for _, span := range all {
+		if span.TraceID == traceID {
+			result = append(result, span)
+		}
 	}
 
-	// Return a copy to avoid concurrent modification issues
-	result := make([]*StoredSpan, len(spans))
-	copy(result, spans)
 	return result
 }
 
@@ -139,23 +124,35 @@ func (ts *TraceStorage) GetSpansByName(spanName string) []*StoredSpan {
 
 // Stats returns current storage statistics.
 func (ts *TraceStorage) Stats() StorageStats {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
+	// Count unique traces by scanning
+	all := ts.spans.GetAll()
+	traceIDs := make(map[string]struct{})
+	for _, span := range all {
+		traceIDs[span.TraceID] = struct{}{}
+	}
 
 	return StorageStats{
 		SpanCount:  ts.spans.Size(),
 		Capacity:   ts.spans.Capacity(),
-		TraceCount: len(ts.traceIndex),
+		TraceCount: len(traceIDs),
 	}
 }
 
-// Clear removes all stored spans and resets indexes.
+// Clear removes all stored spans.
 func (ts *TraceStorage) Clear() {
 	ts.spans.Clear()
+}
 
-	ts.mu.Lock()
-	ts.traceIndex = make(map[string][]*StoredSpan)
-	ts.mu.Unlock()
+// GetRange returns spans between start and end positions (inclusive).
+// Positions are absolute and represent the logical sequence of spans added.
+func (ts *TraceStorage) GetRange(start, end int) []*StoredSpan {
+	return ts.spans.GetRange(start, end)
+}
+
+// CurrentPosition returns the current write position.
+// Used by snapshots to bookmark a point in time.
+func (ts *TraceStorage) CurrentPosition() int {
+	return ts.spans.CurrentPosition()
 }
 
 // StorageStats contains statistics about trace storage.

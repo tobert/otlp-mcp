@@ -1,8 +1,14 @@
 # Task 09: Integration & Testing
 
+> ⚠️ **UPDATED FOR SNAPSHOT-FIRST APPROACH**
+>
+> Testing now focuses on the 5 snapshot-based tools instead of 26 signal-specific tools.
+>
+> **See [SNAPSHOT-FIRST-PLAN.md](./SNAPSHOT-FIRST-PLAN.md) for the new approach.**
+
 ## Overview
 
-Comprehensive integration testing for the observability phase, validating all signals (traces, logs, metrics) working together with MCP tools, snapshots, and correlation features.
+Comprehensive integration testing for the **snapshot-first observability system**, validating that all signals (traces, logs, metrics) work together through the 5 unified tools.
 
 **Dependencies:** All previous tasks (01-08) must be complete
 

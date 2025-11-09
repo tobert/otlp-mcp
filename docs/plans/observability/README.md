@@ -1,7 +1,13 @@
-# Observability Plan
+# 📸 Observability Plan - Snapshot-First Approach
 
 **Phase:** Post-Bootstrap Enhancement
-**Goal:** Add full OpenTelemetry observability support (logs, metrics, events)
+**Goal:** Add full observability with a revolutionary snapshot-first interface using just 5 intuitive tools
+
+## The Snapshot Revolution
+
+Instead of making agents learn dozens of signal-specific tools, we provide **just 5 tools** that work how agents actually think - around operations and time windows.
+
+**See [SNAPSHOT-FIRST-PLAN.md](./SNAPSHOT-FIRST-PLAN.md) for complete implementation details.**
 
 ## What This Is
 
@@ -17,17 +23,14 @@ This plan extends the bootstrap MVP to support additional OpenTelemetry signals:
 
 ```
 observability/
-├── 00-overview.md             # Architecture and goals (READ THIS FIRST)
-├── 01-storage-optimization.md # Ring buffer index cleanup + improvements (CRITICAL FIRST)
+├── SNAPSHOT-FIRST-PLAN.md     # THE NEW APPROACH - Start here!
+├── 00-overview.md             # Architecture overview
+├── 01-storage-optimization.md # CRITICAL memory leak fix + snapshot support
 ├── 02-logs-support.md         # OTLP logs endpoint and storage
 ├── 03-metrics-support.md      # OTLP metrics endpoint and storage
-├── 04-mcp-log-tools.md        # MCP tools for logs
-├── 05-mcp-metric-tools.md     # MCP tools for metrics
-├── 06-mcp-span-event-tools.md # MCP tools for span events
-├── 07-mcp-snapshot-tools.md   # MCP tools for snapshots (revolutionary!)
-├── 08-mcp-correlation-tools.md# MCP tools for correlation
-├── 09-integration.md          # Multi-signal testing
-├── 10-documentation.md        # Update docs for all signals
+├── 10-integration.md          # Testing the 5-tool system
+├── 11-documentation.md        # Documentation for snapshot approach
+├── snapshot-first-design.md   # Design rationale
 └── README.md                  # This file
 ```
 
@@ -108,34 +111,26 @@ All implementations follow official OTel specs:
 ## Task Dependencies
 
 ```
-┌─────────────────────┐
-│ 01: Storage Opt (C) │
-└───────────┬─────────┘
+┌─────────────────────────┐
+│ 01: Storage Opt + Snap  │ (CRITICAL - Memory leak fix!)
+└───────────┬─────────────┘
             │
 ┌───────────▼───────────┐
-│ 02: Logs (P)          │
+│ 02: Logs Support (P)  │
 ├───────────────────────┤
-│ 03: Metrics (P)       │
+│ 03: Metrics Support(P)│
 └───────────┬───────────┘
             │
 ┌───────────▼───────────┐
-│ 04: MCP Log Tools     │
-├───────────────────────┤
-│ 05: MCP Metric Tools  │
-├───────────────────────┤
-│ 06: MCP Span Event T. │
-├───────────────────────┤
-│ 07: MCP Snapshot T.   │
-├───────────────────────┤
-│ 08: MCP Correlation T.│
+│ 04: 5 Snapshot Tools  │
 └───────────┬───────────┘
             │
 ┌───────────▼───────────┐
-│ 09: Integration       │
+│ 05: Integration       │
 └───────────┬───────────┘
             │
 ┌───────────▼───────────┐
-│ 10: Documentation     │
+│ 06: Documentation     │
 └───────────────────────┘
 ```
 
@@ -150,18 +145,18 @@ All implementations follow official OTel specs:
 
 When this phase is complete:
 
-- ✅ 3 OTLP endpoints (traces, logs, metrics).
-- ✅ 3 ring buffer stores with index cleanup (no memory leaks).
-- ✅ 26 new MCP tools total:
-  - 9 log tools (Task 04).
-  - 8 metric tools (Task 05).
-  - 2 span event tools (Task 06).
-  - 4 snapshot tools (Task 07 - operation isolation).
-  - 3 correlation tools (Task 08).
-- ✅ Context-efficient querying (pagination, windowing, filtering).
-- ✅ Full observability for agents across multiple signals.
-- ✅ ~50 MB total memory footprint.
-- ✅ Comprehensive documentation with examples.
+- ✅ 3 OTLP endpoints (traces, logs, metrics)
+- ✅ 3 ring buffer stores with index cleanup (no memory leaks)
+- ✅ **Just 5 MCP tools** that do everything:
+  - `snapshot.create` - Mark points in time
+  - `snapshot.get` - Get all signals from a time window
+  - `snapshot.diff` - Compare before/after
+  - `telemetry.recent` - Get recent data
+  - `telemetry.search` - Search across everything
+- ✅ Automatic correlation across all signals
+- ✅ Zero-copy snapshots (24 bytes each!)
+- ✅ ~50 MB total memory footprint
+- ✅ Natural, intuitive agent workflows
 
 ## Questions?
 

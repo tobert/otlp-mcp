@@ -1,20 +1,24 @@
-# Task 01: Logs Support
+# Task 02: Logs Support
 
 ## Overview
 
-Implement OTLP logs gRPC endpoint and LogStorage to receive, store, and query log records from instrumented applications.
+Implement OTLP logs gRPC endpoint and **`LogStorage`** to receive, store, and query log records from instrumented applications.
 
-**Pattern:** Follow the same architecture as traces (Task 03 from bootstrap)
-- OTLP gRPC receiver for logs
-- Ring buffer storage with indexing
-- Integration with main serve command
+**Pattern:** Follow the same architecture as traces (from bootstrap).
+- OTLP gRPC receiver for logs.
+- Ring buffer storage with indexing.
+- Integration with main `serve` command.
+
+## Prerequisite
+
+- **Task 01: Storage Optimization** must be complete. This task relies on the **`SetOnEvict`** callback pattern established in **`internal/storage/ringbuffer.go`** to prevent memory leaks.
 
 ## Goals
 
-1. Accept OTLP log records via gRPC
-2. Store logs in ring buffer (50,000 record capacity)
-3. Index by trace_id, severity, and service name
-4. Prepare for MCP query tools (Task 04)
+1. Accept OTLP log records via gRPC.
+2. Store logs in a ring buffer (50,000 record capacity).
+3. Index by `trace_id`, `severity`, and `service name`.
+4. Prepare for MCP query tools (Task 04).
 
 ## OpenTelemetry Log Specifications
 
@@ -107,7 +111,9 @@ func NewLogStorage(capacity int) *LogStorage {
         serviceIndex:  make(map[string][]*StoredLog),
     }
 
-    // Set up eviction callback for index cleanup
+    // PATTERN: Use the SetOnEvict callback to ensure indexes are cleaned up
+    // when the ring buffer overwrites old data. This prevents memory leaks.
+    // This pattern is established in Task 01.
     ls.logs.SetOnEvict(func(position int, oldLog *StoredLog) {
         ls.removeFromIndexes(position, oldLog)
     })
@@ -580,17 +586,16 @@ func TestLogsEndToEnd(t *testing.T) {
 }
 ```
 
-## Acceptance Criteria
+## Definition of Done
 
-- [ ] LogStorage created with ring buffer and indexes
-- [ ] Index cleanup on eviction working
-- [ ] OTLP logs gRPC receiver implemented
-- [ ] Integration with serve command complete
-- [ ] Unit tests pass (storage + receiver)
-- [ ] Integration test passes (end-to-end)
-- [ ] Logs stored with trace_id, severity, service indexing
-- [ ] Stats tracking working
-- [ ] Memory usage reasonable (~25 MB for 50K logs)
+- [ ] The **`LogStorage`** struct is created in **`internal/storage/log_storage.go`** with a ring buffer and indexes for `trace_id`, `severity`, and `service_name`.
+- [ ] The **`NewLogStorage`** function correctly sets up the **`SetOnEvict`** callback to prevent index memory leaks.
+- [ ] The **`removeFromIndexes`** function is implemented and correctly removes evicted logs from all indexes.
+- [ ] The OTLP logs gRPC receiver is implemented in **`internal/logsreceiver/receiver.go`**.
+- [ ] The `serve` command in **`internal/cli/serve.go`** is updated to initialize and start the logs receiver.
+- [ ] Unit tests in **`internal/storage/log_storage_test.go`** are created and pass, including the **`TestLogStorageIndexCleanup`** test.
+- [ ] An end-to-end integration test is created in **`test/logs_e2e_test.go`** and passes.
+- [ ] The **`LogStorage.Stats()`** method is implemented and provides accurate counts.
 
 ## Files to Create
 
@@ -620,5 +625,5 @@ All dependencies already in project from bootstrap:
 ---
 
 **Status:** Ready to implement
-**Dependencies:** Task 03 (Storage Optimization) should be done first for eviction callback pattern
-**Next:** Task 02 (Metrics Support)
+**Dependencies:** **Task 01: Storage Optimization** must be complete.
+**Next:** **Task 03: Metrics Support**

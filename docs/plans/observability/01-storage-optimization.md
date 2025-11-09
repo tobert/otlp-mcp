@@ -1,323 +1,397 @@
-# Task 01: Storage Optimization
+# Task 01: Index-Free Storage Architecture
 
 ## Overview
 
-Optimize the ring buffer storage layer to prevent memory leaks, improve performance, and handle multiple signal types efficiently.
+Simplify the storage layer by eliminating content indexes. Instead, use snapshot-based position tracking for queries. This approach reduces memory usage, eliminates memory leak risks, and aligns with the snapshot-first query model.
 
-## Why This Is Task 01 (CRITICAL)
+## Why This Is Task 01
 
-This task is **paramount** and must be completed **first** in the observability phase because it addresses a **critical memory leak** in the existing trace storage. It also establishes the **`SetOnEvict` callback pattern** in the **`internal/storage/ringbuffer.go`** that is essential for the correct functioning of the new log and metric storage implementations (Tasks 02 and 03). Without this fix, the application's memory usage will grow unbounded, leading to instability.
+This task addresses the memory leak in the bootstrap implementation by eliminating the root cause rather than adding cleanup complexity:
+- **Eliminates memory leaks** - Indexes were growing unbounded
+- **Reduces complexity** - No eviction callbacks or index maintenance needed
+- **Reduces memory usage** - Indexes consumed ~40% of total footprint
+- **Aligns with snapshot model** - Position-based queries are the primary use case
 
-## Priority 1: Fix Index Cleanup (CRITICAL)
+## Priority 1: Position-Based Queries Instead of Content Indexes
+
+### Design Rationale
+
+Snapshots track positions in ring buffers, providing natural time-based bookmarks. Instead of indexing by content (trace IDs, service names), queries use position ranges with in-memory filtering. This approach is simpler and sufficient for typical query volumes.
 
 ### Current Issue
 
-**Memory Leak in Bootstrap Implementation:**
+**File:** `internal/storage/trace_storage.go` (lines 77-80)
 
-When the ring buffer overwrites an old entry (circular buffer behavior), the indexes are NOT cleaned up. This causes:
-
-1. **Memory leak** - Index maps grow unbounded.
-2. **Stale data** - Queries return references to overwritten entries.
-3. **Incorrect results** - Trace/service lookups find deleted spans.
-
-**Example Problem:**
+The code acknowledges the problem:
 ```go
-// Ring buffer capacity: 10
-// Add 11th span → overwrites position 0
-// But traceIndex[oldTraceID] still points to position 0!
-// Query by oldTraceID returns wrong span (or nil panic)
+// Note: For MVP, the trace index grows unbounded.
+// This is acceptable for short agent sessions (minutes to hours).
+// Future enhancement: Track which spans are evicted from ring buffer
+// and remove them from the index as well.
 ```
 
-### Current Implementation Review
+**Issues with content indexes:**
+1. **Memory leak** - traceIndex and serviceIndex grow unbounded
+2. **Maintenance complexity** - Requires eviction callbacks and synchronization
+3. **Memory overhead** - Indexes consume ~40% of total storage footprint
+4. **Misaligned with usage** - Snapshot queries use time ranges, not content lookups
 
-**File:** `internal/storage/trace_storage.go`
+### Solution: Position-Based Queries with In-Memory Filtering
 
-```go
-type TraceStorage struct {
-    spans       *RingBuffer[Span]
-    traceIndex  map[string][]int  // trace_id → positions
-    serviceIndex map[string][]int // service_name → positions
-    mu          sync.RWMutex
-}
-
-func (ts *TraceStorage) AddSpan(span Span) {
-    ts.mu.Lock()
-    defer ts.mu.Unlock()
-
-    position := ts.spans.Add(span)  // May overwrite old entry!
-
-    // Add to indexes
-    ts.traceIndex[span.TraceID] = append(ts.traceIndex[span.TraceID], position)
-    ts.serviceIndex[span.ServiceName] = append(ts.serviceIndex[span.ServiceName], position)
-
-    // 🐛 BUG: Old index entries not removed!
-}
-```
-
-### Solution: Add Eviction Callback
-
-**Step 1:** Modify **`RingBuffer`** to support eviction callbacks
+**Step 1:** Add position-based queries to **`RingBuffer`**
 
 ```go
 // internal/storage/ringbuffer.go
 
-type RingBuffer[T any] struct {
-    data     []T
-    head     int
-    size     int
-    capacity int
-    onEvict  func(position int, value T) // NEW: callback when item evicted
-    mu       sync.RWMutex
-}
+// GetRange returns items between start and end positions (inclusive).
+// Handles wraparound correctly. Returns empty slice if range is invalid.
+func (rb *RingBuffer[T]) GetRange(start, end int) []T {
+    rb.mu.RLock()
+    defer rb.mu.RUnlock()
 
-func (rb *RingBuffer[T]) SetOnEvict(callback func(int, T)) {
-    rb.mu.Lock()
-    defer rb.mu.Unlock()
-    rb.onEvict = callback
-}
-
-func (rb *RingBuffer[T]) Add(item T) int {
-    rb.mu.Lock()
-    defer rb.mu.Unlock()
-
-    position := rb.head
-
-    // If buffer is full, call eviction callback BEFORE overwriting
-    if rb.size == rb.capacity && rb.onEvict != nil {
-        rb.onEvict(position, rb.data[position])
+    if rb.size == 0 || start < 0 || end < start {
+        return nil
     }
 
-    rb.data[position] = item
-    rb.head = (rb.head + 1) % rb.capacity
-    if rb.size < rb.capacity {
-        rb.size++
+    // Calculate actual positions in the circular buffer
+    result := make([]T, 0, end-start+1)
+
+    for pos := start; pos <= end && pos < rb.head+rb.size; pos++ {
+        idx := pos % rb.capacity
+        result = append(result, rb.items[idx])
     }
 
-    return position
+    return result
+}
+
+// CurrentPosition returns the current write position (next item will go here).
+// This is used by snapshots to bookmark a point in time.
+func (rb *RingBuffer[T]) CurrentPosition() int {
+    rb.mu.RLock()
+    defer rb.mu.RUnlock()
+    // Return absolute position (not modulo capacity)
+    // This allows snapshots to track total items added
+    return rb.head + (rb.size / rb.capacity) * rb.capacity
 }
 ```
 
-**Step 2:** Use eviction callback in **`TraceStorage`**
+**Step 2:** Simplify **`TraceStorage`** - remove content indexes
 
 ```go
 // internal/storage/trace_storage.go
 
+type TraceStorage struct {
+    spans *RingBuffer[*StoredSpan]
+    // traceIndex REMOVED
+    // serviceIndex REMOVED
+    // mu REMOVED (RingBuffer is already thread-safe)
+}
+
 func NewTraceStorage(capacity int) *TraceStorage {
-    ts := &TraceStorage{
-        spans:        NewRingBuffer[Span](capacity),
-        traceIndex:   make(map[string][]int),
-        serviceIndex: make(map[string][]int),
-    }
-
-    // Set up eviction callback
-    ts.spans.SetOnEvict(func(position int, oldSpan Span) {
-        ts.removeFromIndexes(position, oldSpan)
-    })
-
-    return ts
-}
-
-func (ts *TraceStorage) removeFromIndexes(position int, oldSpan Span) {
-    // Remove position from trace index
-    positions := ts.traceIndex[oldSpan.TraceID]
-    ts.traceIndex[oldSpan.TraceID] = removePosition(positions, position)
-    if len(ts.traceIndex[oldSpan.TraceID]) == 0 {
-        delete(ts.traceIndex, oldSpan.TraceID)
-    }
-
-    // Remove position from service index
-    positions = ts.serviceIndex[oldSpan.ServiceName]
-    ts.serviceIndex[oldSpan.ServiceName] = removePosition(positions, position)
-    if len(ts.serviceIndex[oldSpan.ServiceName]) == 0 {
-        delete(ts.serviceIndex, oldSpan.ServiceName)
+    return &TraceStorage{
+        spans: NewRingBuffer[*StoredSpan](capacity),
     }
 }
 
-func removePosition(positions []int, position int) []int {
-    result := make([]int, 0, len(positions))
-    for _, p := range positions {
-        if p != position {
-            result = append(result, p)
+// Position-based queries (for snapshots)
+func (ts *TraceStorage) GetRange(start, end int) []*StoredSpan {
+    return ts.spans.GetRange(start, end)
+}
+
+func (ts *TraceStorage) CurrentPosition() int {
+    return ts.spans.CurrentPosition()
+}
+```
+
+### Testing Position-Based Queries
+
+**Test Case:**
+```go
+func TestPositionBasedQueries(t *testing.T) {
+    storage := NewTraceStorage(100)
+
+    // Capture position before adding spans
+    pos1 := storage.CurrentPosition()
+
+    // Add some spans
+    storage.AddSpan(span1)
+    storage.AddSpan(span2)
+    storage.AddSpan(span3)
+
+    pos2 := storage.CurrentPosition()
+
+    // Add more spans
+    storage.AddSpan(span4)
+    storage.AddSpan(span5)
+
+    pos3 := storage.CurrentPosition()
+
+    // Get range between pos1 and pos2 (should be 3 spans)
+    spans := storage.GetRange(pos1, pos2-1)
+    if len(spans) != 3 {
+        t.Errorf("expected 3 spans, got %d", len(spans))
+    }
+
+    // Get range between pos2 and pos3 (should be 2 spans)
+    spans = storage.GetRange(pos2, pos3-1)
+    if len(spans) != 2 {
+        t.Errorf("expected 2 spans, got %d", len(spans))
+    }
+
+    // Filter by trace ID in-memory (no index needed)
+    allSpans := storage.GetRange(pos1, pos3-1)
+    filtered := FilterByTraceID(allSpans, "trace-123")
+}
+```
+
+## Priority 2: Filtering Utilities
+
+### Storage Characteristics
+
+| Signal | Size per Entry | Frequency | Typical Query Size |
+|--------|---------------|-----------|-------------------|
+| Traces | ~500 bytes | Medium | 100-1000 spans |
+| Logs | ~200 bytes | High | 500-5000 logs |
+| Metrics | ~150 bytes | Very High | 1000-10000 points |
+
+**Key insight:** Linear filtering of 1000 items takes microseconds. Network latency is ~50-200ms. The filtering overhead is negligible compared to network transfer.
+
+### Storage Design (Simplified)
+
+All three signal types follow the same pattern without content indexes:
+
+```go
+type TraceStorage struct {
+    spans *RingBuffer[*StoredSpan]
+}
+
+type LogStorage struct {
+    logs *RingBuffer[*LogRecord]
+}
+
+type MetricStorage struct {
+    metrics *RingBuffer[*MetricPoint]
+}
+```
+
+### Filtering Functions (In-Memory)
+
+```go
+// internal/storage/filters.go
+
+func FilterSpansByTraceID(spans []*StoredSpan, traceID string) []*StoredSpan {
+    result := make([]*StoredSpan, 0, len(spans)/10) // estimate 10% match
+    for _, span := range spans {
+        if span.TraceID == traceID {
+            result = append(result, span)
         }
+    }
+    return result
+}
+
+func FilterSpansByService(spans []*StoredSpan, service string) []*StoredSpan {
+    result := make([]*StoredSpan, 0, len(spans)/5) // estimate 20% match
+    for _, span := range spans {
+        if span.ServiceName == service {
+            result = append(result, span)
+        }
+    }
+    return result
+}
+
+func FilterLogsBySeverity(logs []*LogRecord, severity string) []*LogRecord {
+    result := make([]*LogRecord, 0, len(logs)/20) // estimate 5% match
+    for _, log := range logs {
+        if log.Severity == severity {
+            result = append(result, log)
+        }
+    }
+    return result
+}
+
+func FilterMetricsByName(metrics []*MetricPoint, name string) []*MetricPoint {
+    result := make([]*MetricPoint, 0, len(metrics)/100) // estimate 1% match
+    for _, metric := range metrics {
+        if metric.Name == name {
+            result = append(result, metric)
+        }
+    }
+    return result
+}
+
+// Combine multiple filters with AND logic
+func FilterSpans(spans []*StoredSpan, opts FilterOptions) []*StoredSpan {
+    result := spans
+    if opts.TraceID != "" {
+        result = FilterSpansByTraceID(result, opts.TraceID)
+    }
+    if opts.Service != "" {
+        result = FilterSpansByService(result, opts.Service)
+    }
+    if opts.SpanName != "" {
+        result = FilterSpansByName(result, opts.SpanName)
     }
     return result
 }
 ```
 
-### Testing the Fix
+## Priority 3: Snapshot Manager
 
-**Test Case:**
+### Position Tracking Implementation
+
 ```go
-func TestIndexCleanupOnOverwrite(t *testing.T) {
-    storage := NewTraceStorage(3) // Small buffer for testing
+// internal/storage/snapshot_manager.go
 
-    // Add 3 spans
-    span1 := Span{TraceID: "trace1", ServiceName: "svc1", SpanName: "span1"}
-    span2 := Span{TraceID: "trace2", ServiceName: "svc1", SpanName: "span2"}
-    span3 := Span{TraceID: "trace3", ServiceName: "svc2", SpanName: "span3"}
+type SnapshotManager struct {
+    snapshots map[string]*Snapshot
+    mu        sync.RWMutex
+}
 
-    storage.AddSpan(span1)
-    storage.AddSpan(span2)
-    storage.AddSpan(span3)
+type Snapshot struct {
+    Name      string
+    CreatedAt time.Time
+    TracePos  int // Position in trace buffer
+    LogPos    int // Position in log buffer
+    MetricPos int // Position in metric buffer
+}
 
-    // Verify indexes
-    if len(storage.GetSpansByTraceID("trace1")) != 1 {
-        t.Error("trace1 should have 1 span")
+func NewSnapshotManager() *SnapshotManager {
+    return &SnapshotManager{
+        snapshots: make(map[string]*Snapshot),
     }
-    if len(storage.GetSpansByService("svc1")) != 2 {
-        t.Error("svc1 should have 2 spans")
-    }
+}
 
-    // Add 4th span → overwrites span1
-    span4 := Span{TraceID: "trace4", ServiceName: "svc2", SpanName: "span4"}
-    storage.AddSpan(span4)
+func (sm *SnapshotManager) Create(name string, tracePos, logPos, metricPos int) error {
+    sm.mu.Lock()
+    defer sm.mu.Unlock()
 
-    // ✅ trace1 index should be cleaned up
-    if len(storage.GetSpansByTraceID("trace1")) != 0 {
-        t.Error("trace1 index should be removed")
-    }
-
-    // ✅ svc1 index should have 1 span (not 2)
-    if len(storage.GetSpansByService("svc1")) != 1 {
-        t.Error("svc1 should have 1 span after eviction")
+    if _, exists := sm.snapshots[name]; exists {
+        return fmt.Errorf("snapshot %s already exists", name)
     }
 
-    // ✅ svc2 index should have 2 spans
-    if len(storage.GetSpansByService("svc2")) != 2 {
-        t.Error("svc2 should have 2 spans")
+    sm.snapshots[name] = &Snapshot{
+        Name:      name,
+        CreatedAt: time.Now(),
+        TracePos:  tracePos,
+        LogPos:    logPos,
+        MetricPos: metricPos,
     }
+
+    return nil
+}
+
+func (sm *SnapshotManager) Get(name string) (*Snapshot, error) {
+    sm.mu.RLock()
+    defer sm.mu.RUnlock()
+
+    snap, exists := sm.snapshots[name]
+    if !exists {
+        return nil, fmt.Errorf("snapshot %s not found", name)
+    }
+
+    return snap, nil
+}
+
+func (sm *SnapshotManager) List() []string {
+    sm.mu.RLock()
+    defer sm.mu.RUnlock()
+
+    names := make([]string, 0, len(sm.snapshots))
+    for name := range sm.snapshots {
+        names = append(names, name)
+    }
+    return names
+}
+
+func (sm *SnapshotManager) Delete(name string) error {
+    sm.mu.Lock()
+    defer sm.mu.Unlock()
+
+    if _, exists := sm.snapshots[name]; !exists {
+        return fmt.Errorf("snapshot %s not found", name)
+    }
+
+    delete(sm.snapshots, name)
+    return nil
 }
 ```
 
-## Priority 2: Optimize for Different Signal Types
-
-### Storage Characteristics
-
-| Signal | Size per Entry | Frequency | Index Needs |
-|--------|---------------|-----------|-------------|
-| Traces | ~500 bytes | Medium | trace_id, service, span_name |
-| Logs | ~200 bytes | High | trace_id, severity, service |
-| Metrics | ~150 bytes | Very High | metric_name, service, type |
-
-### Optimizations
-
-**1. Separate Ring Buffers** (already planned)
-- TraceStorage (10K capacity)
-- LogStorage (50K capacity)
-- MetricStorage (100K capacity)
-
-**2. Index Strategies**
-
-**Traces:** Current approach works
-- trace_id → positions (primary lookup)
-- service_name → positions (filtering)
-
-**Logs:** Add severity index
-```go
-type LogStorage struct {
-    logs          *RingBuffer[LogRecord]
-    traceIndex    map[string][]int  // trace_id → positions
-    serviceIndex  map[string][]int  // service → positions
-    severityIndex map[string][]int  // severity → positions (NEW)
-}
-```
-
-**Metrics:** Add metric name index
-```go
-type MetricStorage struct {
-    metrics     *RingBuffer[MetricPoint]
-    nameIndex   map[string][]int  // metric_name → positions (primary)
-    serviceIndex map[string][]int // service → positions
-    typeIndex   map[string][]int  // type → positions (gauge/sum/histogram)
-}
-```
-
-## Priority 3: Memory Usage Monitoring
-
-### Add Stats Tracking
+### Memory Tracking (Simplified)
 
 ```go
 type StorageStats struct {
-    Capacity      int           `json:"capacity"`
-    SpanCount     int           `json:"span_count"`
-    TraceCount    int           `json:"trace_count"`
-
-    // NEW: Memory tracking
-    IndexMemory   int64         `json:"index_memory_bytes"`
-    DataMemory    int64         `json:"data_memory_bytes"`
-    TotalMemory   int64         `json:"total_memory_bytes"`
-
-    // NEW: Index stats
-    TraceIndexSize   int        `json:"trace_index_entries"`
-    ServiceIndexSize int        `json:"service_index_entries"`
+    Capacity   int   `json:"capacity"`
+    Size       int   `json:"size"`
+    DataMemory int64 `json:"data_memory_bytes"`
 }
 
 func (ts *TraceStorage) Stats() StorageStats {
-    ts.mu.RLock()
-    defer ts.mu.RUnlock()
-
-    dataMemory := int64(ts.spans.Size() * estimatedSpanSize)
-
-    // Estimate index memory
-    indexMemory := int64(0)
-    for _, positions := range ts.traceIndex {
-        indexMemory += int64(len(positions) * 8) // 8 bytes per int
-    }
-    for _, positions := range ts.serviceIndex {
-        indexMemory += int64(len(positions) * 8)
-    }
+    size := ts.spans.Size()
 
     return StorageStats{
-        Capacity:         ts.spans.Capacity(),
-        SpanCount:        ts.spans.Size(),
-        TraceCount:       len(ts.traceIndex),
-        IndexMemory:      indexMemory,
-        DataMemory:       dataMemory,
-        TotalMemory:      indexMemory + dataMemory,
-        TraceIndexSize:   len(ts.traceIndex),
-        ServiceIndexSize: len(ts.serviceIndex),
+        Capacity:   ts.spans.Capacity(),
+        Size:       size,
+        DataMemory: int64(size * estimatedSpanSize),
     }
 }
 ```
 
-## Priority 4: Compression (Future)
+## Performance Characteristics
 
-For metrics (high volume, repetitive data):
+### Query Performance
 
-```go
-// Compress metric points with delta encoding
-type CompressedMetricPoint struct {
-    Name      string
-    Value     float64
-    TimeDelta int64  // Delta from previous point
-    // Attributes stored in separate dictionary
-}
-```
+**Typical snapshot query:**
+- Range size: 100-5000 items
+- Filter scan: O(n) where n = range size
+- Time: <1ms for 5000 items
+- Network latency: 50-200ms
+- **Conclusion:** Filtering overhead is negligible
 
-**Deferred to post-observability phase** - adds complexity.
+**Search across all buffers:**
+- Full scan: O(n) where n = buffer size (10K spans)
+- Time: ~1ms for 10K items
+- Use case: Rare needle-in-haystack searches
+- **Conclusion:** Acceptable for debugging scenarios
+
+### Memory Comparison
+
+**Old (with indexes):**
+- Ring buffer: 500 KB
+- Trace index: 250 KB
+- Service index: 100 KB
+- **Total: 850 KB**
+
+**New (index-free):**
+- Ring buffer: 500 KB
+- Snapshots: 2.4 KB (100 snapshots × 24 bytes)
+- **Total: 502 KB**
+
+**Savings: 348 KB (40% reduction)**
 
 ## Implementation Order
 
-This task is **Task 01** and should be completed first. The steps are:
-
-1.  **Modify `internal/storage/ringbuffer.go`**: Add the `SetOnEvict` callback mechanism.
-2.  **Modify `internal/storage/trace_storage.go`**: Implement the `removeFromIndexes` function and integrate it with the `SetOnEvict` callback in `NewTraceStorage`.
-3.  **Add/Update `internal/storage/trace_storage_test.go`**: Create or update the `TestIndexCleanupOnOverwrite` test case to verify the fix.
-4.  **Implement Memory Tracking in `TraceStorage.Stats()`**: Add `IndexMemory`, `DataMemory`, and `TotalMemory` calculations.
+1. **Add position queries to RingBuffer** (`GetRange`, `CurrentPosition`)
+2. **Remove indexes from TraceStorage** (delete traceIndex, serviceIndex, mu)
+3. **Create filtering utilities** (`internal/storage/filters.go`)
+4. **Build SnapshotManager** (`internal/storage/snapshot_manager.go`)
+5. **Update tests** to use position-based queries
+6. **Verify memory profile** (no unbounded growth)
 
 ## Definition of Done
 
-- [ ] The **`SetOnEvict`** callback is added to **`internal/storage/ringbuffer.go`**.
-- [ ] The **`removeFromIndexes`** function is implemented in **`internal/storage/trace_storage.go`**.
-- [ ] The **`SetOnEvict`** callback is integrated into **`NewTraceStorage`** to call **`removeFromIndexes`** on eviction.
-- [ ] The **`TestIndexCleanupOnOverwrite`** unit test is created/updated in **`internal/storage/trace_storage_test.go`** and passes, verifying index cleanup on overwrite.
-- [ ] The **`StorageStats`** struct in **`internal/storage/trace_storage.go`** includes `IndexMemory`, `DataMemory`, and `TotalMemory` fields.
-- [ ] The **`TraceStorage.Stats()`** method accurately calculates and returns memory usage estimates.
-- [ ] All existing tests for **`trace_storage`** continue to pass.
-- [ ] No memory leaks are detected when running tests that force ring buffer wraparound.
+- [ ] `GetRange(start, end)` added to `internal/storage/ringbuffer.go`
+- [ ] `CurrentPosition()` added to `internal/storage/ringbuffer.go`
+- [ ] All indexes removed from `internal/storage/trace_storage.go`
+- [ ] Filtering functions created in `internal/storage/filters.go`
+- [ ] `SnapshotManager` implemented in `internal/storage/snapshot_manager.go`
+- [ ] Tests updated to use position-based queries
+- [ ] Performance verified: <1ms for 5K item scan
+- [ ] Memory verified: No unbounded growth
+- [ ] All existing tests pass
 
 ---
 
-**Priority:** **CRITICAL** (fixes critical memory leak)
+**Priority:** High (addresses memory leak and simplifies architecture)
 **Estimated Effort:** 2-3 hours
 **Dependencies:** None (can be done immediately)
+**Impact:** 40% memory reduction, significant complexity reduction, eliminates memory leak risk

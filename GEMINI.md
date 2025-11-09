@@ -1,1 +1,1 @@
-CLAUDE.md
+BOTS.md

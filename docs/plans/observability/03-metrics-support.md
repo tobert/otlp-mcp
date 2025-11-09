@@ -1,21 +1,25 @@
-# Task 02: Metrics Support
+# Task 03: Metrics Support
 
 ## Overview
 
-Implement OTLP metrics gRPC endpoint and MetricStorage to receive, store, and query metric data from instrumented applications.
+Implement OTLP metrics gRPC endpoint and **`MetricStorage`** to receive, store, and query metric data from instrumented applications.
 
-**Pattern:** Follow the same architecture as logs (Task 01) and traces (bootstrap)
-- OTLP gRPC receiver for metrics
-- Ring buffer storage with indexing
-- Integration with main serve command
+**Pattern:** Follow the same architecture as logs (Task 02) and traces (bootstrap).
+- OTLP gRPC receiver for metrics.
+- Ring buffer storage with indexing.
+- Integration with main `serve` command.
+
+## Prerequisite
+
+- **Task 01: Storage Optimization** must be complete. This task relies on the **`SetOnEvict`** callback pattern established in **`internal/storage/ringbuffer.go`** to prevent memory leaks.
 
 ## Goals
 
-1. Accept OTLP metric data via gRPC
-2. Store metrics in ring buffer (100,000 data point capacity)
-3. Index by metric name, service name, and metric type
-4. Handle all 5 OTLP metric types (Gauge, Sum, Histogram, ExponentialHistogram, Summary)
-5. Prepare for MCP query tools (Task 04)
+1. Accept OTLP metric data via gRPC.
+2. Store metrics in a ring buffer (100,000 data point capacity).
+3. Index by `metric name`, `service name`, and `metric type`.
+4. Handle all 5 OTLP metric types (Gauge, Sum, Histogram, ExponentialHistogram, Summary).
+5. Prepare for MCP query tools (Task 05).
 
 ## OpenTelemetry Metrics Specifications
 
@@ -198,7 +202,9 @@ func NewMetricStorage(capacity int) *MetricStorage {
 		typeIndex:    make(map[MetricType][]*StoredMetric),
 	}
 
-	// Set up eviction callback for index cleanup
+	// PATTERN: Use the SetOnEvict callback to ensure indexes are cleaned up
+    // when the ring buffer overwrites old data. This prevents memory leaks.
+    // This pattern is established in Task 01.
 	ms.metrics.SetOnEvict(func(position int, oldMetric *StoredMetric) {
 		ms.removeFromIndexes(position, oldMetric)
 	})
@@ -920,18 +926,17 @@ func TestMetricsEndToEnd(t *testing.T) {
 }
 ```
 
-## Acceptance Criteria
+## Definition of Done
 
-- [ ] MetricStorage created with ring buffer and indexes
-- [ ] Index cleanup on eviction working (critical for memory leak prevention)
-- [ ] All 5 metric types supported (Gauge, Sum, Histogram, ExponentialHistogram, Summary)
-- [ ] OTLP metrics gRPC receiver implemented
-- [ ] Integration with serve command complete
-- [ ] Unit tests pass (storage + receiver)
-- [ ] Integration test passes (end-to-end with multiple metric types)
-- [ ] Metrics indexed by name, service, and type
-- [ ] Stats tracking working (including data point counts)
-- [ ] Memory usage reasonable (~20 MB for 100K metrics)
+- [ ] The **`MetricStorage`** struct is created in **`internal/storage/metric_storage.go`** with a ring buffer and indexes for `metric_name`, `service_name`, and `metric_type`.
+- [ ] The **`NewMetricStorage`** function correctly sets up the **`SetOnEvict`** callback to prevent index memory leaks.
+- [ ] The **`removeFromIndexes`** function is implemented and correctly removes evicted metrics from all indexes.
+- [ ] The OTLP metrics gRPC receiver is implemented in **`internal/metricsreceiver/receiver.go`**.
+- [ ] The `serve` command in **`internal/cli/serve.go`** is updated to initialize and start the metrics receiver.
+- [ ] Unit tests in **`internal/storage/metric_storage_test.go`** are created and pass, including the **`TestMetricStorageIndexCleanup`** test.
+- [ ] An end-to-end integration test is created in **`test/metrics_e2e_test.go`** and passes.
+- [ ] The **`MetricStorage.Stats()`** method is implemented and provides accurate counts.
+- [ ] The implementation correctly handles all 5 OTLP metric types.
 
 ## Files to Create
 
@@ -962,19 +967,19 @@ All dependencies already in project from bootstrap:
 ## Notes
 
 **Metric Type Complexity:**
-- Metrics are more complex than logs/traces due to multiple types
-- Each type has different data point structures
-- Summary extraction helps with quick queries without parsing full proto
-- Histogram and ExponentialHistogram require special handling for buckets
+- Metrics are more complex than logs/traces due to multiple types.
+- Each type has different data point structures.
+- Summary extraction helps with quick queries without parsing full proto.
+- Histogram and ExponentialHistogram require special handling for buckets.
 
 **Performance Considerations:**
-- 100K capacity chosen because metrics are high-volume but compact
-- Index by name is critical (agents will query by metric name most often)
-- Type index enables "show me all gauges" queries
-- Data point counting important for understanding buffer utilization
+- 100K capacity chosen because metrics are high-volume but compact.
+- Index by name is critical (agents will query by metric name most often).
+- Type index enables "show me all gauges" queries.
+- Data point counting important for understanding buffer utilization.
 
 ---
 
 **Status:** Ready to implement
-**Dependencies:** Task 03 (Storage Optimization) should be done first for eviction callback pattern
-**Next:** Task 04 (MCP Tools)
+**Dependencies:** **Task 01: Storage Optimization** must be complete.
+**Next:** **Task 04: MCP Log Tools**

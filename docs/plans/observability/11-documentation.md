@@ -1,8 +1,14 @@
 # Task 10: Documentation
 
+> ⚠️ **MAJOR CHANGE: Documentation needs to reflect snapshot-first approach**
+>
+> Instead of documenting 26 tools, we now document just 5 snapshot-based tools!
+>
+> **See [SNAPSHOT-FIRST-PLAN.md](./SNAPSHOT-FIRST-PLAN.md) for the new approach.**
+
 ## Overview
 
-Update project documentation to reflect the observability phase additions: logs, metrics, 26 new MCP tools, snapshots, and correlation features.
+Update project documentation to reflect the **snapshot-first observability** approach with just 5 tools instead of 26.
 
 **Dependencies:** All tasks 01-09 complete
 
