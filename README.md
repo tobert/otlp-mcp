@@ -299,4 +299,6 @@ See [docs/plans/bootstrap/](docs/plans/bootstrap/) for:
 
 ## License
 
-MIT License - Copyright (c) 2025 Amy Tobey
+Apache License 2.0 - Copyright (c) 2025 Amy Tobey
+
+See [LICENSE](LICENSE) for details.

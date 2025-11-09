@@ -363,4 +363,4 @@ jj's power is in context preservation across sessions and agents.
 
 ## License
 
-MIT License - Copyright (c) 2025 Amy Tobey
+Apache License 2.0 - Copyright (c) 2025 Amy Tobey
