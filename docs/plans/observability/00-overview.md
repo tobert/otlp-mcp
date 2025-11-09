@@ -97,48 +97,54 @@ Add support for:
 
 ## Implementation Tasks
 
-### Task 01: Logs Support
-- Implement OTLP logs gRPC endpoint
-- Create LogStorage ring buffer
-- Add log-specific MCP tools
-- Support log severity filtering
-- Handle structured log attributes
+### Task 01: Storage Optimization (CRITICAL)
+- **Fix index cleanup:** Remove index entries when ring buffer overwrites old records. This is a critical memory leak fix.
+- Optimize ring buffer for different signal sizes.
+- Add compression for metric data (future consideration).
+- Implement LRU eviction strategies (future consideration).
+- Memory usage monitoring and limits.
+- Prevent memory leaks from stale index entries.
 
-### Task 02: Metrics Support
-- Implement OTLP metrics gRPC endpoint
-- Create MetricStorage ring buffer
-- Handle different metric types (gauge, sum, histogram, etc.)
-- Add metric aggregation and querying
-- Add metric-specific MCP tools
+### Task 02: Logs Support
+- Implement OTLP logs gRPC endpoint.
+- Create LogStorage ring buffer.
+- Add log-specific MCP tools.
+- Support log severity filtering.
+- Handle structured log attributes.
 
-### Task 03: Storage Optimization
-- **Fix index cleanup:** Remove index entries when ring buffer overwrites old records
-- Optimize ring buffer for different signal sizes
-- Add compression for metric data
-- Implement LRU eviction strategies
-- Memory usage monitoring and limits
-- Prevent memory leaks from stale index entries
+### Task 03: Metrics Support
+- Implement OTLP metrics gRPC endpoint.
+- Create MetricStorage ring buffer.
+- Handle different metric types (gauge, sum, histogram, etc.).
+- Add metric aggregation and querying.
+- Add metric-specific MCP tools.
 
-### Task 04: MCP Tool Expansion
-- Add efficient log tools with grep/search and range limiting
-- Add metric query tools with time-range support
-- Add span event query tools (filter by event name/attributes)
-- Add snapshot tools (create, list, get, delete) for operation isolation
-- Add correlation tools (find logs for trace, metrics for service)
-- Add pagination/windowing for context efficiency
-- Add aggregate queries (log counts, metric stats)
+### Task 04: MCP Log Tools
+- Implement 9 log tools (grep_logs, get_log_range, get_log_range_snapshot, etc.).
 
-### Task 05: Integration & Testing
-- End-to-end tests for all signals (traces, logs, metrics)
-- Multi-signal scenarios
-- Performance testing with high volumes
-- Memory usage validation
+### Task 05: MCP Metric Tools
+- Implement 8 metric tools (get_metric_range, get_metric_range_snapshot, etc.).
 
-### Task 06: Documentation
-- Update README with logs and metrics examples
-- Add multi-signal demo script
-- Document correlation workflows and snapshot usage
-- Add troubleshooting for each signal type
+### Task 06: MCP Span Event Tools
+- Implement 2 span event tools (query_span_events, get_spans_with_events).
+
+### Task 07: MCP Snapshot Tools
+- Implement 4 snapshot tools (create_snapshot, list_snapshots, get_snapshot_data, delete_snapshot).
+
+### Task 08: MCP Correlation Tools
+- Implement 3 correlation tools (get_logs_for_trace, get_metrics_for_service, get_timeline).
+
+### Task 09: Integration & Testing
+- End-to-end tests for all signals (traces, logs, metrics).
+- Multi-signal scenarios.
+- Performance testing with high volumes.
+- Memory usage validation.
+
+### Task 10: Documentation
+- Update README with logs and metrics examples.
+- Add multi-signal demo script.
+- Document correlation workflows and snapshot usage.
+- Add troubleshooting for each signal type.
 
 ## MCP Tools (New)
 
@@ -345,26 +351,30 @@ import (
 
 Based on bootstrap experience:
 
-- **Task 01 (Logs):** ~2-3 hours (similar to trace implementation)
-- **Task 02 (Metrics):** ~3-4 hours (more complex data model)
-- **Task 03 (Storage):** ~2-3 hours (critical index cleanup + optimization)
-- **Task 04 (MCP Tools):** ~3-4 hours (20 new tools + pagination/grep features)
-- **Task 05 (Integration):** ~2-3 hours (testing and validation)
-- **Task 06 (Documentation):** ~1-2 hours (extend existing docs)
+- **Task 01 (Storage Optimization):** ~2-3 hours (critical index cleanup + optimization)
+- **Task 02 (Logs Support):** ~2-3 hours (similar to trace implementation)
+- **Task 03 (Metrics Support):** ~3-4 hours (more complex data model)
+- **Task 04 (MCP Log Tools):** ~1-2 hours (9 new tools)
+- **Task 05 (MCP Metric Tools):** ~1-2 hours (8 new tools)
+- **Task 06 (MCP Span Event Tools):** ~1 hour (2 new tools)
+- **Task 07 (MCP Snapshot Tools):** ~2-3 hours (4 new tools - revolutionary!)
+- **Task 08 (MCP Correlation Tools):** ~1-2 hours (3 new tools)
+- **Task 09 (Integration & Testing):** ~2-3 hours (testing and validation)
+- **Task 10 (Documentation):** ~1-2 hours (extend existing docs)
 
-**Total: ~13-19 hours** of agent collaboration
+**Total: ~15-23 hours** of agent collaboration
 
 ## Notes
 
-- Logs and metrics follow same patterns as traces
-- MCP tool structure is consistent across signals
-- Storage layer is generic (ring buffer reuse)
-- Learning from bootstrap makes this phase faster
-- OpenTelemetry specs are well-documented
-- Go protobuf types are well-maintained
+- Logs and metrics follow same patterns as traces.
+- MCP tool structure is consistent across signals.
+- Storage layer is generic (ring buffer reuse).
+- Learning from bootstrap makes this phase faster.
+- OpenTelemetry specs are well-documented.
+- Go protobuf types are well-maintained.
 
 ---
 
-**Status:** Planning phase - Updated with context efficiency requirements
-**Next:** Can start with Task 01 (Logs Support) OR Task 03 (Storage Optimization - fixes critical bug)
-**Priority:** Task 03 recommended first - fixes memory leak in existing traces implementation
+**Status:** Planning complete, ready for implementation.
+**Next:** Begin with **Task 01: Storage Optimization** to fix the critical memory leak and establish the eviction callback pattern.
+**Priority:** Task 01 is **CRITICAL** and must be completed first.

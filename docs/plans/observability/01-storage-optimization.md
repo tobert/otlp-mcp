@@ -1,10 +1,12 @@
-# Task 03: Storage Optimization
+# Task 01: Storage Optimization
 
 ## Overview
 
 Optimize the ring buffer storage layer to prevent memory leaks, improve performance, and handle multiple signal types efficiently.
 
-**Note:** Task renumbered from 04 to 03 after merging events (former Task 03) into MCP tools (now Task 04).
+## Why This Is Task 01 (CRITICAL)
+
+This task is **paramount** and must be completed **first** in the observability phase because it addresses a **critical memory leak** in the existing trace storage. It also establishes the **`SetOnEvict` callback pattern** in the **`internal/storage/ringbuffer.go`** that is essential for the correct functioning of the new log and metric storage implementations (Tasks 02 and 03). Without this fix, the application's memory usage will grow unbounded, leading to instability.
 
 ## Priority 1: Fix Index Cleanup (CRITICAL)
 
@@ -14,9 +16,9 @@ Optimize the ring buffer storage layer to prevent memory leaks, improve performa
 
 When the ring buffer overwrites an old entry (circular buffer behavior), the indexes are NOT cleaned up. This causes:
 
-1. **Memory leak** - Index maps grow unbounded
-2. **Stale data** - Queries return references to overwritten entries
-3. **Incorrect results** - Trace/service lookups find deleted spans
+1. **Memory leak** - Index maps grow unbounded.
+2. **Stale data** - Queries return references to overwritten entries.
+3. **Incorrect results** - Trace/service lookups find deleted spans.
 
 **Example Problem:**
 ```go
@@ -54,7 +56,7 @@ func (ts *TraceStorage) AddSpan(span Span) {
 
 ### Solution: Add Eviction Callback
 
-**Step 1:** Modify RingBuffer to support eviction callbacks
+**Step 1:** Modify **`RingBuffer`** to support eviction callbacks
 
 ```go
 // internal/storage/ringbuffer.go
@@ -95,7 +97,7 @@ func (rb *RingBuffer[T]) Add(item T) int {
 }
 ```
 
-**Step 2:** Use eviction callback in TraceStorage
+**Step 2:** Use eviction callback in **`TraceStorage`**
 
 ```go
 // internal/storage/trace_storage.go
@@ -294,44 +296,28 @@ type CompressedMetricPoint struct {
 
 **Deferred to post-observability phase** - adds complexity.
 
-## Success Criteria
-
-1. ✅ Index cleanup on ring buffer overwrite
-2. ✅ No memory leaks from stale indexes
-3. ✅ Queries return correct results after wraparound
-4. ✅ Memory usage tracking in stats
-5. ✅ All tests pass including overwrite scenarios
-6. ✅ Performance: <1ms for index cleanup on eviction
-
 ## Implementation Order
 
-1. **First:** Fix index cleanup (critical bug)
-2. **Second:** Add memory tracking to stats
-3. **Third:** Apply pattern to logs and metrics storage
-4. **Fourth:** Add comprehensive tests
-5. **Fifth:** Consider compression (optional)
+This task is **Task 01** and should be completed first. The steps are:
 
-## Files to Modify
+1.  **Modify `internal/storage/ringbuffer.go`**: Add the `SetOnEvict` callback mechanism.
+2.  **Modify `internal/storage/trace_storage.go`**: Implement the `removeFromIndexes` function and integrate it with the `SetOnEvict` callback in `NewTraceStorage`.
+3.  **Add/Update `internal/storage/trace_storage_test.go`**: Create or update the `TestIndexCleanupOnOverwrite` test case to verify the fix.
+4.  **Implement Memory Tracking in `TraceStorage.Stats()`**: Add `IndexMemory`, `DataMemory`, and `TotalMemory` calculations.
 
-- `internal/storage/ringbuffer.go` - Add eviction callback
-- `internal/storage/trace_storage.go` - Implement cleanup
-- `internal/storage/trace_storage_test.go` - Add overwrite tests
-- `internal/storage/log_storage.go` - New file (same pattern)
-- `internal/storage/metric_storage.go` - New file (same pattern)
+## Definition of Done
 
-## Acceptance Criteria
-
-- [ ] Ring buffer supports eviction callbacks
-- [ ] TraceStorage cleans up indexes on overwrite
-- [ ] LogStorage cleans up indexes on overwrite
-- [ ] MetricStorage cleans up indexes on overwrite
-- [ ] Stats include memory usage estimates
-- [ ] Tests verify no memory leaks
-- [ ] Tests verify correct results after buffer wraparound
-- [ ] Documentation updated with memory characteristics
+- [ ] The **`SetOnEvict`** callback is added to **`internal/storage/ringbuffer.go`**.
+- [ ] The **`removeFromIndexes`** function is implemented in **`internal/storage/trace_storage.go`**.
+- [ ] The **`SetOnEvict`** callback is integrated into **`NewTraceStorage`** to call **`removeFromIndexes`** on eviction.
+- [ ] The **`TestIndexCleanupOnOverwrite`** unit test is created/updated in **`internal/storage/trace_storage_test.go`** and passes, verifying index cleanup on overwrite.
+- [ ] The **`StorageStats`** struct in **`internal/storage/trace_storage.go`** includes `IndexMemory`, `DataMemory`, and `TotalMemory` fields.
+- [ ] The **`TraceStorage.Stats()`** method accurately calculates and returns memory usage estimates.
+- [ ] All existing tests for **`trace_storage`** continue to pass.
+- [ ] No memory leaks are detected when running tests that force ring buffer wraparound.
 
 ---
 
-**Priority:** HIGH (fixes critical memory leak)
+**Priority:** **CRITICAL** (fixes critical memory leak)
 **Estimated Effort:** 2-3 hours
 **Dependencies:** None (can be done immediately)

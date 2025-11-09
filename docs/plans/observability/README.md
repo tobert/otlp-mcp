@@ -17,14 +17,18 @@ This plan extends the bootstrap MVP to support additional OpenTelemetry signals:
 
 ```
 observability/
-├── 00-overview.md          # Architecture and goals (READ THIS FIRST)
-├── 01-logs-support.md      # OTLP logs endpoint and storage
-├── 02-metrics-support.md   # OTLP metrics endpoint and storage
-├── 03-storage-optimization.md # Ring buffer index cleanup + improvements
-├── 04-mcp-tools.md         # 20 new tools: logs, metrics, events, correlation
-├── 05-integration.md       # Multi-signal testing
-├── 06-documentation.md     # Update docs for all signals
-└── README.md               # This file
+├── 00-overview.md             # Architecture and goals (READ THIS FIRST)
+├── 01-storage-optimization.md # Ring buffer index cleanup + improvements (CRITICAL FIRST)
+├── 02-logs-support.md         # OTLP logs endpoint and storage
+├── 03-metrics-support.md      # OTLP metrics endpoint and storage
+├── 04-mcp-log-tools.md        # MCP tools for logs
+├── 05-mcp-metric-tools.md     # MCP tools for metrics
+├── 06-mcp-span-event-tools.md # MCP tools for span events
+├── 07-mcp-snapshot-tools.md   # MCP tools for snapshots (revolutionary!)
+├── 08-mcp-correlation-tools.md# MCP tools for correlation
+├── 09-integration.md          # Multi-signal testing
+├── 10-documentation.md        # Update docs for all signals
+└── README.md                  # This file
 ```
 
 ## Why This Matters
@@ -96,47 +100,68 @@ All implementations follow official OTel specs:
 
 ## Getting Started
 
-1. **Read `00-overview.md`** for full architecture
-2. **Check bootstrap completion** in `../bootstrap/COMPLETE.md`
-3. **Start with Task 01** (logs support)
-4. **Follow the same patterns** as bootstrap implementation
+1. **Read `00-overview.md`** for full architecture.
+2. **Check bootstrap completion** in `../bootstrap/COMPLETE.md`.
+3. **Start with Task 01 (Storage Optimization)** to fix the critical memory leak and establish the eviction callback pattern.
+4. **Follow the same patterns** as bootstrap implementation.
 
 ## Task Dependencies
 
 ```
-┌─────────────────┐
-│ 01: Logs        │──┐
-└─────────────────┘  │
-                     │
-┌─────────────────┐  │
-│ 02: Metrics     │──┤
-└─────────────────┘  │
-                     ├──► 04: MCP Tools ──► 05: Integration ──► 06: Docs
-┌─────────────────┐  │
-│ 03: Storage Opt │──┘
-└─────────────────┘
+┌─────────────────────┐
+│ 01: Storage Opt (C) │
+└───────────┬─────────┘
+            │
+┌───────────▼───────────┐
+│ 02: Logs (P)          │
+├───────────────────────┤
+│ 03: Metrics (P)       │
+└───────────┬───────────┘
+            │
+┌───────────▼───────────┐
+│ 04: MCP Log Tools     │
+├───────────────────────┤
+│ 05: MCP Metric Tools  │
+├───────────────────────┤
+│ 06: MCP Span Event T. │
+├───────────────────────┤
+│ 07: MCP Snapshot T.   │
+├───────────────────────┤
+│ 08: MCP Correlation T.│
+└───────────┬───────────┘
+            │
+┌───────────▼───────────┐
+│ 09: Integration       │
+└───────────┬───────────┘
+            │
+┌───────────▼───────────┐
+│ 10: Documentation     │
+└───────────────────────┘
 ```
 
-**Parallel work possible:** Tasks 01-03 can be done concurrently
-**Sequential:** 04-06 depend on 01-03 completion
-**Critical first:** Task 03 (storage optimization) fixes memory leak - can be done immediately
+**Legend:** (C) Critical, (P) Parallel
+
+**Implementation Order:**
+- **Critical First:** Task 01 (Storage Optimization) fixes a memory leak and is a prerequisite for Tasks 02 and 03.
+- **Parallel:** Tasks 02 (Logs) and 03 (Metrics) can be implemented in parallel after Task 01.
+- **Sequential:** Tasks 04 through 10 depend on the completion of preceding tasks.
 
 ## Success Metrics
 
 When this phase is complete:
 
-- ✅ 3 OTLP endpoints (traces, logs, metrics)
-- ✅ 3 ring buffer stores with index cleanup (no memory leaks)
+- ✅ 3 OTLP endpoints (traces, logs, metrics).
+- ✅ 3 ring buffer stores with index cleanup (no memory leaks).
 - ✅ 26 new MCP tools total:
-  - 9 log tools (including grep, snapshot queries)
-  - 8 metric tools (including time-range, snapshot support)
-  - 2 span event tools
-  - 4 snapshot tools (operation isolation)
-  - 3 correlation tools
-- ✅ Context-efficient querying (pagination, windowing, filtering)
-- ✅ Full observability for agents across multiple signals
-- ✅ ~50 MB total memory footprint
-- ✅ Comprehensive documentation with examples
+  - 9 log tools (Task 04).
+  - 8 metric tools (Task 05).
+  - 2 span event tools (Task 06).
+  - 4 snapshot tools (Task 07 - operation isolation).
+  - 3 correlation tools (Task 08).
+- ✅ Context-efficient querying (pagination, windowing, filtering).
+- ✅ Full observability for agents across multiple signals.
+- ✅ ~50 MB total memory footprint.
+- ✅ Comprehensive documentation with examples.
 
 ## Questions?
 
@@ -146,5 +171,5 @@ See `00-overview.md` for detailed architecture and implementation guidance.
 
 **Phase:** Observability Extension
 **Status:** Planning complete, ready for implementation
-**Estimated Effort:** 13-19 hours of agent collaboration
+**Estimated Effort:** 15-23 hours of agent collaboration
 **Tool Count:** 26 new tools + 6 existing trace tools = 32 total MCP tools
