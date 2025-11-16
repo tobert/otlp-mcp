@@ -82,52 +82,55 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 		log.Println()
 	}
 
-	// 1. Create all storage instances with configured buffer sizes
-	traceStorage := storage.NewTraceStorage(cfg.TraceBufferSize)
-	logStorage := storage.NewLogStorage(cfg.LogBufferSize)
-	metricStorage := storage.NewMetricStorage(cfg.MetricBufferSize)
+	// 1. Create unified observability storage with configured buffer sizes
+	obsStorage := storage.NewObservabilityStorage(
+		cfg.TraceBufferSize,
+		cfg.LogBufferSize,
+		cfg.MetricBufferSize,
+	)
 
 	if cfg.Verbose {
-		log.Printf("✅ Created trace storage (capacity: %d spans)\n", cfg.TraceBufferSize)
-		log.Printf("✅ Created log storage (capacity: %d records)\n", cfg.LogBufferSize)
-		log.Printf("✅ Created metric storage (capacity: %d points)\n", cfg.MetricBufferSize)
+		log.Printf("✅ Created observability storage:\n")
+		log.Printf("   Trace buffer:  %d spans\n", cfg.TraceBufferSize)
+		log.Printf("   Log buffer:    %d records\n", cfg.LogBufferSize)
+		log.Printf("   Metric buffer: %d points\n", cfg.MetricBufferSize)
 	}
 
 	// 2. Create and start all OTLP gRPC receivers
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Create trace receiver
+	// Create trace receiver using unified storage
 	traceServer, err := otlpreceiver.NewServer(
 		otlpreceiver.Config{
 			Host: cfg.OTLPHost,
 			Port: cfg.OTLPPort,
 		},
-		traceStorage,
+		obsStorage, // Implements ReceiveSpans
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create trace receiver: %w", err)
 	}
 
-	// Create logs receiver (ephemeral port)
+	// Create logs receiver (ephemeral port) using unified storage
 	logsServer, err := logsreceiver.NewServer(
 		logsreceiver.Config{
 			Host: cfg.OTLPHost,
 			Port: 0, // ephemeral
 		},
-		logStorage,
+		obsStorage, // Implements ReceiveLogs
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create logs receiver: %w", err)
 	}
 
-	// Create metrics receiver (ephemeral port)
+	// Create metrics receiver (ephemeral port) using unified storage
 	metricsServer, err := metricsreceiver.NewServer(
 		metricsreceiver.Config{
 			Host: cfg.OTLPHost,
 			Port: 0, // ephemeral
 		},
-		metricStorage,
+		obsStorage, // Implements ReceiveMetrics
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create metrics receiver: %w", err)
@@ -166,20 +169,23 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 		log.Printf("   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=%s\n", metricsEndpoint)
 	}
 
-	// 3. Create MCP server (currently only exposes trace tools)
-	mcpServer, err := mcpserver.NewServer(traceStorage, traceEndpoint)
+	// 3. Create MCP server with unified storage and all endpoints
+	mcpServer, err := mcpserver.NewServer(obsStorage, mcpserver.Endpoints{
+		Traces:  traceEndpoint,
+		Logs:    logsEndpoint,
+		Metrics: metricsEndpoint,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}
 
 	if cfg.Verbose {
-		log.Println("✅ MCP server created with 6 tools:")
-		log.Println("   - get_otlp_endpoint")
-		log.Println("   - get_recent_traces")
-		log.Println("   - get_trace_by_id")
-		log.Println("   - query_traces")
-		log.Println("   - get_stats")
-		log.Println("   - clear_traces")
+		log.Println("✅ MCP server created with 5 snapshot-first tools:")
+		log.Println("   - get_otlp_endpoints (all three signal types)")
+		log.Println("   - create_snapshot (bookmark buffer positions)")
+		log.Println("   - query (multi-signal query with filters)")
+		log.Println("   - get_snapshot_data (time-based query)")
+		log.Println("   - manage_snapshots (list/delete/clear)")
 	}
 
 	// 4. Setup graceful shutdown on SIGINT/SIGTERM
