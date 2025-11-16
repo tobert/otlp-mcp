@@ -12,12 +12,14 @@ import (
 // ═══════════════════════════════════════════════════════════════════════════
 // SNAPSHOT-FIRST MCP TOOLS
 //
-// Instead of 18+ signal-specific tools, we provide 5 snapshot-centric tools:
+// Instead of 18+ signal-specific tools, we provide 7 snapshot-centric tools:
 // 1. get_otlp_endpoint - Get the unified OTLP endpoint (one for all signals)
 // 2. create_snapshot - Bookmark current state across all buffers
 // 3. query - Multi-signal query with optional snapshot time range
 // 4. get_snapshot_data - Get all signals between two snapshots
 // 5. manage_snapshots - List and delete snapshots
+// 6. get_stats - Show buffer usage, capacity, and snapshot count
+// 7. clear_data - Clear all telemetry buffers (useful for testing)
 //
 // Agents think: "What happened during deployment?" not "Get traces, then logs"
 // Single OTLP endpoint simplifies app configuration!
@@ -308,6 +310,133 @@ func (s *Server) handleManageSnapshots(
 	}
 }
 
+// Tool 6: get_stats
+
+type GetStatsInput struct{}
+
+type GetStatsOutput struct {
+	Traces      TraceStats   `json:"traces" jsonschema:"Trace buffer statistics"`
+	Logs        LogStats     `json:"logs" jsonschema:"Log buffer statistics"`
+	Metrics     MetricStats  `json:"metrics" jsonschema:"Metric buffer statistics"`
+	Snapshots   int          `json:"snapshot_count" jsonschema:"Number of snapshots"`
+	Summary     string       `json:"summary" jsonschema:"Human-readable summary"`
+}
+
+type TraceStats struct {
+	Count      int `json:"count" jsonschema:"Current number of spans"`
+	Capacity   int `json:"capacity" jsonschema:"Maximum capacity"`
+	TraceCount int `json:"trace_count" jsonschema:"Number of distinct traces"`
+	UsagePercent int `json:"usage_percent" jsonschema:"Percentage full"`
+}
+
+type LogStats struct {
+	Count        int            `json:"count" jsonschema:"Current number of logs"`
+	Capacity     int            `json:"capacity" jsonschema:"Maximum capacity"`
+	TraceCount   int            `json:"trace_count" jsonschema:"Logs with trace IDs"`
+	ServiceCount int            `json:"service_count" jsonschema:"Distinct services"`
+	Severities   map[string]int `json:"severities" jsonschema:"Log counts by severity"`
+	UsagePercent int            `json:"usage_percent" jsonschema:"Percentage full"`
+}
+
+type MetricStats struct {
+	Count        int            `json:"count" jsonschema:"Current number of metrics"`
+	Capacity     int            `json:"capacity" jsonschema:"Maximum capacity"`
+	UniqueNames  int            `json:"unique_names" jsonschema:"Distinct metric names"`
+	ServiceCount int            `json:"service_count" jsonschema:"Distinct services"`
+	TypeCounts   map[string]int `json:"type_counts" jsonschema:"Counts by metric type"`
+	UsagePercent int            `json:"usage_percent" jsonschema:"Percentage full"`
+}
+
+func (s *Server) handleGetStats(
+	ctx context.Context,
+	req *mcp.CallToolRequest,
+	input GetStatsInput,
+) (*mcp.CallToolResult, GetStatsOutput, error) {
+	allStats := s.storage.Stats()
+
+	// Calculate usage percentages
+	traceUsage := 0
+	if allStats.Traces.Capacity > 0 {
+		traceUsage = (allStats.Traces.SpanCount * 100) / allStats.Traces.Capacity
+	}
+	logUsage := 0
+	if allStats.Logs.Capacity > 0 {
+		logUsage = (allStats.Logs.LogCount * 100) / allStats.Logs.Capacity
+	}
+	metricUsage := 0
+	if allStats.Metrics.Capacity > 0 {
+		metricUsage = (allStats.Metrics.MetricCount * 100) / allStats.Metrics.Capacity
+	}
+
+	summary := fmt.Sprintf("Traces: %d/%d (%d%%), Logs: %d/%d (%d%%), Metrics: %d/%d (%d%%), Snapshots: %d",
+		allStats.Traces.SpanCount, allStats.Traces.Capacity, traceUsage,
+		allStats.Logs.LogCount, allStats.Logs.Capacity, logUsage,
+		allStats.Metrics.MetricCount, allStats.Metrics.Capacity, metricUsage,
+		allStats.Snapshots,
+	)
+
+	return &mcp.CallToolResult{}, GetStatsOutput{
+		Traces: TraceStats{
+			Count:        allStats.Traces.SpanCount,
+			Capacity:     allStats.Traces.Capacity,
+			TraceCount:   allStats.Traces.TraceCount,
+			UsagePercent: traceUsage,
+		},
+		Logs: LogStats{
+			Count:        allStats.Logs.LogCount,
+			Capacity:     allStats.Logs.Capacity,
+			TraceCount:   allStats.Logs.TraceCount,
+			ServiceCount: allStats.Logs.ServiceCount,
+			Severities:   allStats.Logs.Severities,
+			UsagePercent: logUsage,
+		},
+		Metrics: MetricStats{
+			Count:        allStats.Metrics.MetricCount,
+			Capacity:     allStats.Metrics.Capacity,
+			UniqueNames:  allStats.Metrics.UniqueNames,
+			ServiceCount: allStats.Metrics.ServiceCount,
+			TypeCounts:   allStats.Metrics.TypeCounts,
+			UsagePercent: metricUsage,
+		},
+		Snapshots: allStats.Snapshots,
+		Summary:   summary,
+	}, nil
+}
+
+// Tool 7: clear_data
+
+type ClearDataInput struct{}
+
+type ClearDataOutput struct {
+	Message        string `json:"message" jsonschema:"Status message"`
+	ClearedTraces  int    `json:"cleared_traces" jsonschema:"Number of traces cleared"`
+	ClearedLogs    int    `json:"cleared_logs" jsonschema:"Number of logs cleared"`
+	ClearedMetrics int    `json:"cleared_metrics" jsonschema:"Number of metrics cleared"`
+	SnapshotsKept  int    `json:"snapshots_kept" jsonschema:"Number of snapshots preserved"`
+}
+
+func (s *Server) handleClearData(
+	ctx context.Context,
+	req *mcp.CallToolRequest,
+	input ClearDataInput,
+) (*mcp.CallToolResult, ClearDataOutput, error) {
+	// Get counts before clearing
+	statsBefore := s.storage.Stats()
+
+	// Clear all telemetry data (but preserve snapshots)
+	s.storage.Traces().Clear()
+	s.storage.Logs().Clear()
+	s.storage.Metrics().Clear()
+
+	return &mcp.CallToolResult{}, ClearDataOutput{
+		Message:        "Cleared all telemetry data (snapshots preserved)",
+		ClearedTraces:  statsBefore.Traces.SpanCount,
+		ClearedLogs:    statsBefore.Logs.LogCount,
+		ClearedMetrics: statsBefore.Metrics.MetricCount,
+		SnapshotsKept:  statsBefore.Snapshots,
+	}, nil
+}
+
 // Register all tools
 
 func (s *Server) registerTools() error {
@@ -335,6 +464,16 @@ func (s *Server) registerTools() error {
 		Name:        "manage_snapshots",
 		Description: "List, delete, or clear snapshots",
 	}, s.handleManageSnapshots)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "get_stats",
+		Description: "Get buffer statistics (capacity, usage, snapshot count)",
+	}, s.handleGetStats)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "clear_data",
+		Description: "Clear all telemetry data from buffers (snapshots are preserved)",
+	}, s.handleClearData)
 
 	return nil
 }
