@@ -1,19 +1,19 @@
 # otlp-mcp
 
-**OpenTelemetry observability for AI agents** - Enable Claude and other AI agents to observe, debug, and analyze telemetry from programs they execute.
+**OpenTelemetry observability for coding agents** - Enable Claude and other coding agents to observe, debug, and analyze telemetry from programs they execute.
 
 ## What is this?
 
-`otlp-mcp` is an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that exposes [OpenTelemetry](https://opentelemetry.io/) traces to AI agents. It bridges the observability gap: agents can now see what happens when they run programs, just like developers use distributed tracing to debug production systems.
+`otlp-mcp` is an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that exposes [OpenTelemetry](https://opentelemetry.io/) traces to coding agents. It bridges the observability gap: agents can now see what happens when they run programs, just like developers use distributed tracing to debug production systems.
 
 **Key Concepts:**
 - **OTLP** (OpenTelemetry Protocol) - Industry standard for collecting telemetry (traces, metrics, logs)
-- **MCP** (Model Context Protocol) - Anthropic's protocol for connecting AI agents to external data sources
+- **MCP** (Model Context Protocol) - Anthropic's protocol for connecting coding agents to external data sources
 - **Traces** - Records of program execution showing operations, timing, errors, and context
 
 ## Why would I use this?
 
-**For AI Agent Developers:**
+**For Agent Developers:**
 - 🔍 **Debug agent behavior** - See what your agents actually do when executing code
 - 📊 **Performance analysis** - Identify slow operations in agent workflows
 - 🐛 **Error tracking** - Catch and diagnose failures in real-time
@@ -32,7 +32,7 @@ See `docs/plans/bootstrap/` for the implementation plan.
 
 ## How It Works
 
-Enable AI agents to observe and analyze telemetry from programs they execute in a tight feedback loop. The agent starts `otlp-mcp serve`, runs instrumented programs pointing to the OTLP endpoint, and queries trace data via MCP tools to debug and iterate.
+Enable coding agents to observe and analyze telemetry from programs they execute in a tight feedback loop. The agent starts `otlp-mcp serve`, runs instrumented programs pointing to the OTLP endpoint, and queries trace data via MCP tools to debug and iterate.
 
 ## Architecture
 
@@ -50,7 +50,7 @@ Agent (stdio) ←→ MCP Server ←→ Ring Buffer ←→ OTLP gRPC Server ←�
 ## Prerequisites
 
 - **Go 1.25 or later** - [Download Go](https://go.dev/dl/)
-- **Claude Code** (or another MCP-compatible AI client)
+- **Claude Code** (or another MCP-compatible coding agent)
 - Optional: **otel-cli** for testing trace ingestion
 
 ## Quick Start
