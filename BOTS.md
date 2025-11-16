@@ -134,22 +134,7 @@ jj descriptions are messages to your future self. Write what you'd need at 3am t
 
 ---
 
-*See `docs/collaboration/` for jj guides, examples, and collaboration protocols*
-
-## 📊 Agent Memory System
-
-The project uses a shared memory system in `docs/agents/` for persistent context:
-
-- **`docs/agents/NOW.md`** - Immediate working state (what's happening right now)
-- **`docs/agents/PATTERNS.md`** - Reusable knowledge and discovered patterns
-- **`docs/agents/CONTEXT.md`** - Session bridge for handoffs and context switches
-- **`docs/agents/MEMORY_PROTOCOL.md`** - Guide to the memory system
-
-These files provide <2000 tokens of overhead for complete context persistence across sessions and models.
-
-## 5. Bootstrap Plan & Package Structure
-
-**See `docs/plans/bootstrap/` for detailed implementation tasks.**
+## 5. Package Structure
 
 The codebase is organized into focused internal packages:
 
@@ -158,19 +143,19 @@ otlp-mcp/
 ├── cmd/otlp-mcp/           # Main binary entry point
 ├── internal/               # Private packages
 │   ├── cli/                # CLI framework and config
-│   ├── otlpreceiver/       # OTLP gRPC server for traces
-│   ├── storage/            # Ring buffer storage
-│   └── mcpserver/          # MCP stdio server
-└── docs/
-    └── plans/bootstrap/    # Task-by-task implementation plan
+│   ├── otlpreceiver/       # Unified OTLP gRPC receiver
+│   ├── logsreceiver/       # OTLP logs receiver
+│   ├── metricsreceiver/    # OTLP metrics receiver
+│   ├── storage/            # Ring buffer storage + snapshots
+│   └── mcpserver/          # MCP stdio server (7 tools)
+└── test/                   # E2E tests
 ```
 
-**MVP Scope (Bootstrap):**
-- OTLP: gRPC only, traces only, localhost only
-- MCP: stdio transport, trace query tools
-- Storage: Fixed-size ring buffers in memory
-
-**Future:** HTTP OTLP, logs/metrics, WebSocket MCP, persistence
+**Current Status:**
+- ✅ Unified OTLP receiver (traces, logs, metrics on one port)
+- ✅ MCP server with 7 snapshot-first tools
+- ✅ In-memory ring buffers with predictable capacity
+- ✅ Snapshot-based temporal queries
 
 ## 6. Go Development Commands
 
@@ -222,9 +207,7 @@ go build -race -o otlp-mcp ./cmd/otlp-mcp
 go test -race ./...
 ```
 
-## 7. Architecture (MVP)
-
-**See `docs/plans/bootstrap/00-overview.md` for complete architecture and diagrams.**
+## 7. Architecture
 
 ### Single Process Model
 
@@ -232,30 +215,28 @@ go test -race ./...
 Agent (stdio) ←→ MCP Server ←→ Storage ←→ OTLP gRPC Server (localhost:0) ←→ Programs
 ```
 
-### OTLP Reception (gRPC only for MVP)
-- Listens on ephemeral port (localhost:0)
-- Accepts OTLP trace exports via gRPC
+### OTLP Reception
+- Listens on ephemeral port (localhost:0) or fixed port via `--otlp-port`
+- Accepts traces, logs, and metrics via gRPC
+- Single unified endpoint for all signal types
 - Code refactored from otel-cli's `otlpserver/` package
-- HTTP support deferred to post-MVP
 
 ### Storage Layer
 - **Fixed-size ring buffers** (not time-based)
-- Default: 10,000 spans
+- Defaults: 10,000 spans / 50,000 logs / 100,000 metrics
 - Generic ring buffer implementation
 - Thread-safe for concurrent reads/writes
-- Logs and metrics support planned for future
+- **Snapshot manager** for temporal queries
 
 ### MCP Server (stdio transport)
-Exposes trace data via MCP tools:
-- `get_otlp_endpoint` - Get gRPC endpoint address
-- `get_recent_traces` - List recent spans
-- `get_trace_by_id` - Fetch specific trace
-- `query_traces` - Filter by service/span name
-- `get_stats` - Buffer statistics
-- `clear_traces` - Clear buffer
-
-Resources:
-- `otlp://config` - Current configuration
+7 snapshot-first tools for temporal observability:
+- `get_otlp_endpoint` - Get unified endpoint address
+- `create_snapshot` - Bookmark current state across all signals
+- `query` - Multi-signal search with filters
+- `get_snapshot_data` - Get all data between two snapshots
+- `manage_snapshots` - List/delete/clear snapshots
+- `get_stats` - Buffer health dashboard
+- `clear_data` - Nuclear reset (clears everything)
 
 ### Workflow
 1. Agent starts: `otlp-mcp serve`

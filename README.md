@@ -26,9 +26,7 @@
 
 ## Status
 
-✅ **MVP Complete** - Bootstrap implementation finished and tested.
-
-See `docs/plans/bootstrap/` for the implementation plan.
+✅ **Production Ready** - Full implementation complete with 7 snapshot-first MCP tools.
 
 ## How It Works
 
@@ -379,14 +377,10 @@ go env GOPATH
 ## Development
 
 See [CLAUDE.md](CLAUDE.md) for:
-- Jujutsu (jj) workflow
-- Go 1.25+ code style
-- Agent collaboration patterns
-
-See [docs/plans/bootstrap/](docs/plans/bootstrap/) for:
-- Task-by-task implementation plan
-- Architecture diagrams
-- Acceptance criteria
+- Jujutsu (jj) workflow and collaboration protocol
+- Go 1.25+ code style guidelines
+- Agent development patterns
+- Architecture overview
 
 ## License
 
