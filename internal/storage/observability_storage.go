@@ -242,7 +242,9 @@ func (os *ObservabilityStorage) Stats() AllStats {
 	}
 }
 
-// Clear removes all data from all buffers and snapshots.
+// Clear removes all telemetry data AND snapshots.
+// This is a complete reset - use sparingly. For normal cleanup,
+// delete individual snapshots with manage_snapshots instead.
 func (os *ObservabilityStorage) Clear() {
 	os.traces.Clear()
 	os.logs.Clear()

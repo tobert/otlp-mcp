@@ -308,33 +308,127 @@ func (s *Server) handleManageSnapshots(
 	}
 }
 
+// Tool 6: get_stats
+
+type GetStatsInput struct{}
+
+type GetStatsOutput struct {
+	Traces    StorageStats       `json:"traces" jsonschema:"Trace storage statistics"`
+	Logs      LogStorageStats    `json:"logs" jsonschema:"Log storage statistics"`
+	Metrics   MetricStorageStats `json:"metrics" jsonschema:"Metric storage statistics"`
+	Snapshots int                `json:"snapshot_count" jsonschema:"Number of snapshots"`
+}
+
+type StorageStats struct {
+	SpanCount  int `json:"span_count" jsonschema:"Current number of spans"`
+	Capacity   int `json:"capacity" jsonschema:"Maximum spans capacity"`
+	TraceCount int `json:"trace_count" jsonschema:"Number of distinct traces"`
+}
+
+type LogStorageStats struct {
+	LogCount     int            `json:"log_count" jsonschema:"Current number of logs"`
+	Capacity     int            `json:"capacity" jsonschema:"Maximum logs capacity"`
+	TraceCount   int            `json:"trace_count" jsonschema:"Logs linked to traces"`
+	ServiceCount int            `json:"service_count" jsonschema:"Distinct services"`
+	Severities   map[string]int `json:"severities" jsonschema:"Severity level counts"`
+}
+
+type MetricStorageStats struct {
+	MetricCount  int            `json:"metric_count" jsonschema:"Current number of metrics"`
+	Capacity     int            `json:"capacity" jsonschema:"Maximum metrics capacity"`
+	UniqueNames  int            `json:"unique_names" jsonschema:"Distinct metric names"`
+	ServiceCount int            `json:"service_count" jsonschema:"Distinct services"`
+	TypeCounts   map[string]int `json:"type_counts" jsonschema:"Counts by metric type"`
+}
+
+func (s *Server) handleGetStats(
+	ctx context.Context,
+	req *mcp.CallToolRequest,
+	input GetStatsInput,
+) (*mcp.CallToolResult, GetStatsOutput, error) {
+	stats := s.storage.Stats()
+
+	return &mcp.CallToolResult{}, GetStatsOutput{
+		Traces: StorageStats{
+			SpanCount:  stats.Traces.SpanCount,
+			Capacity:   stats.Traces.Capacity,
+			TraceCount: stats.Traces.TraceCount,
+		},
+		Logs: LogStorageStats{
+			LogCount:     stats.Logs.LogCount,
+			Capacity:     stats.Logs.Capacity,
+			TraceCount:   stats.Logs.TraceCount,
+			ServiceCount: stats.Logs.ServiceCount,
+			Severities:   stats.Logs.Severities,
+		},
+		Metrics: MetricStorageStats{
+			MetricCount:  stats.Metrics.MetricCount,
+			Capacity:     stats.Metrics.Capacity,
+			UniqueNames:  stats.Metrics.UniqueNames,
+			ServiceCount: stats.Metrics.ServiceCount,
+			TypeCounts:   stats.Metrics.TypeCounts,
+		},
+		Snapshots: stats.Snapshots,
+	}, nil
+}
+
+// Tool 7: clear_data
+
+type ClearDataInput struct{}
+
+type ClearDataOutput struct {
+	Message string `json:"message" jsonschema:"Confirmation message"`
+}
+
+func (s *Server) handleClearData(
+	ctx context.Context,
+	req *mcp.CallToolRequest,
+	input ClearDataInput,
+) (*mcp.CallToolResult, ClearDataOutput, error) {
+	s.storage.Clear()
+
+	return &mcp.CallToolResult{}, ClearDataOutput{
+		Message: "Cleared all telemetry data and snapshots (complete reset)",
+	}, nil
+}
+
 // Register all tools
 
 func (s *Server) registerTools() error {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_otlp_endpoint",
-		Description: "Get the OTLP gRPC endpoint address (accepts traces, logs, and metrics on one port)",
+		Description: "Get the unified OTLP endpoint address - always call this first, then set OTEL_EXPORTER_OTLP_ENDPOINT when running instrumented programs. Single port accepts traces, logs, and metrics.",
 	}, s.handleGetOTLPEndpoint)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_snapshot",
-		Description: "Create a named snapshot of current buffer positions across all signal types",
+		Description: "Bookmark this moment in time with a descriptive name (e.g. 'before-deploy', 'test-start'). Creates a reference point across all signals so you can compare before/after or query time windows. Think: Git commit for live telemetry.",
 	}, s.handleCreateSnapshot)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "query",
-		Description: "Query telemetry data across traces, logs, and metrics with optional filters and snapshot time range",
+		Description: "Search across all signals (traces, logs, metrics) with optional filters. Use for ad-hoc exploration: filter by service name during deployments, trace_id for debugging specific requests, or combine with snapshot time ranges for temporal analysis.",
 	}, s.handleQuery)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_snapshot_data",
-		Description: "Get all telemetry data between two snapshots (time-based query)",
+		Description: "Get everything that happened between two snapshots - perfect for before/after analysis. Ask: 'What traces/logs/metrics appeared during deployment?' Unlocks temporal reasoning: snapshot 'before-deploy' + 'after-deploy' = complete picture of changes.",
 	}, s.handleGetSnapshotData)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "manage_snapshots",
-		Description: "List, delete, or clear snapshots",
+		Description: "Housekeeping for your observability timeline - list your captured moments ('list'), delete specific bookmarks ('delete'), or clear all snapshots ('clear'). Prefer deleting individual snapshots as you finish analyzing them - keeps your timeline clean without losing data.",
 	}, s.handleManageSnapshots)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "get_stats",
+		Description: "Buffer health dashboard - check capacity, current usage, and snapshot count. Use before long-running tests to ensure you won't wrap and lose early data. Answers: 'Am I capturing telemetry?' and 'How much history do I have?'",
+	}, s.handleGetStats)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "clear_data",
+		Description: "Nuclear option - wipes ALL telemetry data and snapshots. Use sparingly, only for complete resets. For normal cleanup, delete individual snapshots with manage_snapshots instead - it's surgical vs. scorched earth.",
+	}, s.handleClearData)
 
 	return nil
 }

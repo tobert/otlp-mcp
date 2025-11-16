@@ -86,6 +86,36 @@ Add to your MCP settings file:
 
 **Important:** Replace `/absolute/path/to/otlp-mcp/otlp-mcp` with the full path to your built binary. Use `pwd` in the project directory to get the absolute path.
 
+#### Using a Stable Port for Watch Workflows
+
+By default, the OTLP server binds to an **ephemeral port** (different each time). For workflows like `cargo watch` where you need a consistent endpoint, specify a fixed port:
+
+```json
+{
+  "mcpServers": {
+    "otlp-mcp": {
+      "command": "/absolute/path/to/otlp-mcp/otlp-mcp",
+      "args": ["serve", "--otlp-port", "4317", "--verbose"]
+    }
+  }
+}
+```
+
+Now your watch command always knows where to send telemetry:
+
+```bash
+# Rust with cargo watch
+OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317 cargo watch -x test
+
+# Go with air or similar
+OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317 air
+
+# Any test runner
+OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317 npm test -- --watch
+```
+
+**Port 4317** is the standard OTLP/gRPC port, but you can use any available port.
+
 ### 3. Restart Claude Code
 
 After adding the configuration, restart Claude Code to load the MCP server.
@@ -110,14 +140,75 @@ Success! 🎉 The MCP server is running and ready to receive traces.
 
 ## MCP Tools
 
+The server provides 7 snapshot-first tools for temporal observability:
+
 | Tool | Description |
 |------|-------------|
-| `get_otlp_endpoint` | Returns OTLP gRPC endpoint address |
-| `get_recent_traces` | Returns N most recent spans (default: 100) |
-| `get_trace_by_id` | Fetches all spans for a specific trace ID |
-| `query_traces` | Filters by service name or span name |
-| `get_stats` | Returns buffer statistics |
-| `clear_traces` | Clears all stored traces |
+| `get_otlp_endpoint` | Get the unified OTLP endpoint address - single port for all signals (traces, logs, metrics) |
+| `create_snapshot` | Bookmark this moment in time across all signal types - think "Git commit for live telemetry" |
+| `query` | Search across all signals with optional filters - for ad-hoc exploration by service, trace ID, or time window |
+| `get_snapshot_data` | Get everything between two snapshots - perfect for before/after analysis |
+| `manage_snapshots` | List/delete/clear snapshots - surgical cleanup as you finish analyzing |
+| `get_stats` | Buffer health dashboard - check capacity, usage, and snapshot count |
+| `clear_data` | Nuclear option - wipes ALL data and snapshots (use sparingly, prefer deleting individual snapshots) |
+
+## Workflow Examples
+
+### Example: Snapshot-Driven Test Analysis
+
+Using snapshots to compare test runs (perfect for TDD workflows):
+
+```
+# In Claude Code:
+You: Create a snapshot called "baseline"
+Claude: [uses create_snapshot tool]
+
+# Run your tests with instrumentation
+You: Run the tests with OTEL_EXPORTER_OTLP_ENDPOINT set
+Claude: [runs tests, they emit traces]
+
+You: Create a snapshot called "first-run"
+Claude: [uses create_snapshot tool]
+
+# Make code changes...
+
+You: Run the tests again
+Claude: [runs tests again]
+
+You: Create a snapshot called "after-fix"
+Claude: [uses create_snapshot tool]
+
+You: What changed between "first-run" and "after-fix"?
+Claude: [uses get_snapshot_data to compare]
+        Shows you exactly what traces appeared/changed
+```
+
+### Example: Cargo Watch with Stable Port
+
+Set up continuous test monitoring for Rust projects:
+
+```bash
+# In your Rust project with OpenTelemetry instrumentation
+OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317 cargo watch -x test
+```
+
+Now every test run sends traces to the same endpoint. In Claude Code:
+
+```
+You: Show me the latest test traces
+Claude: [queries recent traces, shows test execution details]
+
+You: Are there any slow tests?
+Claude: [analyzes trace durations, identifies bottlenecks]
+
+You: Create a snapshot before I optimize the database tests
+Claude: [creates snapshot]
+
+# You make optimizations...
+
+You: How much faster are the database tests now?
+Claude: [compares current traces to snapshot, shows improvements]
+```
 
 ## Demo: Send Test Traces
 

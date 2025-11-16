@@ -326,10 +326,10 @@ func TestObservabilityStorage_Clear(t *testing.T) {
 	addTestMetric(t, obs, "service1", "cpu", 50.0)
 	obs.CreateSnapshot("test")
 
-	// Clear all
+	// Clear everything (nuclear option)
 	obs.Clear()
 
-	// Verify everything is empty
+	// Verify complete reset - everything gone
 	stats := obs.Stats()
 	if stats.Traces.SpanCount != 0 {
 		t.Errorf("Expected 0 spans after clear, got %d", stats.Traces.SpanCount)
@@ -341,7 +341,7 @@ func TestObservabilityStorage_Clear(t *testing.T) {
 		t.Errorf("Expected 0 metrics after clear, got %d", stats.Metrics.MetricCount)
 	}
 	if stats.Snapshots != 0 {
-		t.Errorf("Expected 0 snapshots after clear, got %d", stats.Snapshots)
+		t.Errorf("Expected 0 snapshots after clear (complete reset), got %d", stats.Snapshots)
 	}
 }
 
