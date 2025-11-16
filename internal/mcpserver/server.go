@@ -8,34 +8,40 @@ import (
 	"github.com/tobert/otlp-mcp/internal/storage"
 )
 
-// Server wraps the MCP server with trace storage and OTLP endpoint information.
-// It provides tools for agents to query trace data and get the OTLP endpoint address.
-type Server struct {
-	mcpServer *mcp.Server
-	storage   *storage.TraceStorage
-	endpoint  string // OTLP gRPC endpoint address (e.g., "localhost:54321")
+// Endpoints contains the OTLP gRPC endpoint addresses for each signal type.
+type Endpoints struct {
+	Traces  string
+	Logs    string
+	Metrics string
 }
 
-// NewServer creates a new MCP server that exposes trace query tools.
-// The otlpEndpoint should be the actual address where the OTLP gRPC server is listening.
-func NewServer(traceStorage *storage.TraceStorage, otlpEndpoint string) (*Server, error) {
-	if traceStorage == nil {
-		return nil, fmt.Errorf("trace storage cannot be nil")
+// Server wraps the MCP server with observability storage and OTLP endpoint information.
+// It provides snapshot-first tools for agents to query telemetry data across all signal types.
+type Server struct {
+	mcpServer *mcp.Server
+	storage   *storage.ObservabilityStorage
+	endpoints Endpoints
+}
+
+// NewServer creates a new MCP server that exposes snapshot-first observability tools.
+func NewServer(obsStorage *storage.ObservabilityStorage, endpoints Endpoints) (*Server, error) {
+	if obsStorage == nil {
+		return nil, fmt.Errorf("observability storage cannot be nil")
 	}
 
-	if otlpEndpoint == "" {
-		return nil, fmt.Errorf("otlp endpoint cannot be empty")
+	if endpoints.Traces == "" {
+		return nil, fmt.Errorf("trace endpoint cannot be empty")
 	}
 
 	s := &Server{
-		storage:  traceStorage,
-		endpoint: otlpEndpoint,
+		storage:   obsStorage,
+		endpoints: endpoints,
 	}
 
 	// Create MCP server with implementation metadata
 	s.mcpServer = mcp.NewServer(&mcp.Implementation{
 		Name:    "otlp-mcp",
-		Version: "0.1.0",
+		Version: "0.2.0", // Bumped for snapshot-first redesign
 	}, nil)
 
 	// Register all tools
