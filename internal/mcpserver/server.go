@@ -8,34 +8,28 @@ import (
 	"github.com/tobert/otlp-mcp/internal/storage"
 )
 
-// Endpoints contains the OTLP gRPC endpoint addresses for each signal type.
-type Endpoints struct {
-	Traces  string
-	Logs    string
-	Metrics string
-}
-
 // Server wraps the MCP server with observability storage and OTLP endpoint information.
 // It provides snapshot-first tools for agents to query telemetry data across all signal types.
 type Server struct {
 	mcpServer *mcp.Server
 	storage   *storage.ObservabilityStorage
-	endpoints Endpoints
+	endpoint  string // Single OTLP gRPC endpoint for all signal types
 }
 
 // NewServer creates a new MCP server that exposes snapshot-first observability tools.
-func NewServer(obsStorage *storage.ObservabilityStorage, endpoints Endpoints) (*Server, error) {
+// The endpoint should be the OTLP gRPC address that accepts all signal types.
+func NewServer(obsStorage *storage.ObservabilityStorage, endpoint string) (*Server, error) {
 	if obsStorage == nil {
 		return nil, fmt.Errorf("observability storage cannot be nil")
 	}
 
-	if endpoints.Traces == "" {
-		return nil, fmt.Errorf("trace endpoint cannot be empty")
+	if endpoint == "" {
+		return nil, fmt.Errorf("OTLP endpoint cannot be empty")
 	}
 
 	s := &Server{
-		storage:   obsStorage,
-		endpoints: endpoints,
+		storage:  obsStorage,
+		endpoint: endpoint,
 	}
 
 	// Create MCP server with implementation metadata

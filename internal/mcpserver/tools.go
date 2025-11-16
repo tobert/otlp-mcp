@@ -13,34 +13,38 @@ import (
 // SNAPSHOT-FIRST MCP TOOLS
 //
 // Instead of 18+ signal-specific tools, we provide 5 snapshot-centric tools:
-// 1. get_otlp_endpoints - Get all OTLP endpoint addresses
+// 1. get_otlp_endpoint - Get the unified OTLP endpoint (one for all signals)
 // 2. create_snapshot - Bookmark current state across all buffers
 // 3. query - Multi-signal query with optional snapshot time range
 // 4. get_snapshot_data - Get all signals between two snapshots
 // 5. manage_snapshots - List and delete snapshots
 //
 // Agents think: "What happened during deployment?" not "Get traces, then logs"
+// Single OTLP endpoint simplifies app configuration!
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Tool 1: get_otlp_endpoints
+// Tool 1: get_otlp_endpoint
 
-type GetOTLPEndpointsInput struct{}
+type GetOTLPEndpointInput struct{}
 
-type GetOTLPEndpointsOutput struct {
-	TracesEndpoint  string `json:"traces_endpoint" jsonschema:"OTLP gRPC endpoint for traces (e.g. localhost:54321)"`
-	LogsEndpoint    string `json:"logs_endpoint" jsonschema:"OTLP gRPC endpoint for logs"`
-	MetricsEndpoint string `json:"metrics_endpoint" jsonschema:"OTLP gRPC endpoint for metrics"`
+type GetOTLPEndpointOutput struct {
+	Endpoint         string            `json:"endpoint" jsonschema:"OTLP gRPC endpoint address (accepts traces, logs, and metrics)"`
+	Protocol         string            `json:"protocol" jsonschema:"Protocol type (grpc)"`
+	EnvironmentVars  map[string]string `json:"environment_vars" jsonschema:"Suggested environment variables for configuring applications"`
 }
 
-func (s *Server) handleGetOTLPEndpoints(
+func (s *Server) handleGetOTLPEndpoint(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
-	input GetOTLPEndpointsInput,
-) (*mcp.CallToolResult, GetOTLPEndpointsOutput, error) {
-	return &mcp.CallToolResult{}, GetOTLPEndpointsOutput{
-		TracesEndpoint:  s.endpoints.Traces,
-		LogsEndpoint:    s.endpoints.Logs,
-		MetricsEndpoint: s.endpoints.Metrics,
+	input GetOTLPEndpointInput,
+) (*mcp.CallToolResult, GetOTLPEndpointOutput, error) {
+	return &mcp.CallToolResult{}, GetOTLPEndpointOutput{
+		Endpoint: s.endpoint,
+		Protocol: "grpc",
+		EnvironmentVars: map[string]string{
+			"OTEL_EXPORTER_OTLP_ENDPOINT": s.endpoint,
+			"OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+		},
 	}, nil
 }
 
@@ -308,9 +312,9 @@ func (s *Server) handleManageSnapshots(
 
 func (s *Server) registerTools() error {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "get_otlp_endpoints",
-		Description: "Get OTLP gRPC endpoint addresses for traces, logs, and metrics",
-	}, s.handleGetOTLPEndpoints)
+		Name:        "get_otlp_endpoint",
+		Description: "Get the OTLP gRPC endpoint address (accepts traces, logs, and metrics on one port)",
+	}, s.handleGetOTLPEndpoint)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_snapshot",

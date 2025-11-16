@@ -8,9 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/tobert/otlp-mcp/internal/logsreceiver"
 	"github.com/tobert/otlp-mcp/internal/mcpserver"
-	"github.com/tobert/otlp-mcp/internal/metricsreceiver"
 	"github.com/tobert/otlp-mcp/internal/otlpreceiver"
 	"github.com/tobert/otlp-mcp/internal/storage"
 	"github.com/urfave/cli/v3"
@@ -96,92 +94,51 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 		log.Printf("   Metric buffer: %d points\n", cfg.MetricBufferSize)
 	}
 
-	// 2. Create and start all OTLP gRPC receivers
+	// 2. Create and start unified OTLP gRPC receiver (all signals on one port)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Create trace receiver using unified storage
-	traceServer, err := otlpreceiver.NewServer(
+	// Create unified receiver for all signal types
+	otlpServer, err := otlpreceiver.NewUnifiedServer(
 		otlpreceiver.Config{
 			Host: cfg.OTLPHost,
 			Port: cfg.OTLPPort,
 		},
-		obsStorage, // Implements ReceiveSpans
+		obsStorage, // Implements ReceiveSpans, ReceiveLogs, ReceiveMetrics
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create trace receiver: %w", err)
+		return fmt.Errorf("failed to create OTLP receiver: %w", err)
 	}
 
-	// Create logs receiver (ephemeral port) using unified storage
-	logsServer, err := logsreceiver.NewServer(
-		logsreceiver.Config{
-			Host: cfg.OTLPHost,
-			Port: 0, // ephemeral
-		},
-		obsStorage, // Implements ReceiveLogs
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create logs receiver: %w", err)
-	}
-
-	// Create metrics receiver (ephemeral port) using unified storage
-	metricsServer, err := metricsreceiver.NewServer(
-		metricsreceiver.Config{
-			Host: cfg.OTLPHost,
-			Port: 0, // ephemeral
-		},
-		obsStorage, // Implements ReceiveMetrics
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create metrics receiver: %w", err)
-	}
-
-	// Start all receivers in background
-	traceErrChan := make(chan error, 1)
-	logsErrChan := make(chan error, 1)
-	metricsErrChan := make(chan error, 1)
-
+	// Start receiver in background
+	otlpErrChan := make(chan error, 1)
 	go func() {
-		traceErrChan <- traceServer.Start(ctx)
+		otlpErrChan <- otlpServer.Start(ctx)
 	}()
 
-	go func() {
-		logsErrChan <- logsServer.Start(ctx)
-	}()
+	// Get the actual endpoint (important for ephemeral ports)
+	endpoint := otlpServer.Endpoint()
 
-	go func() {
-		metricsErrChan <- metricsServer.Start(ctx)
-	}()
-
-	// Get the actual endpoints (important for ephemeral ports)
-	traceEndpoint := traceServer.Endpoint()
-	logsEndpoint := logsServer.Endpoint()
-	metricsEndpoint := metricsServer.Endpoint()
-
-	log.Printf("🌐 OTLP gRPC receivers listening:\n")
-	log.Printf("   Traces:  %s\n", traceEndpoint)
-	log.Printf("   Logs:    %s\n", logsEndpoint)
-	log.Printf("   Metrics: %s\n", metricsEndpoint)
+	log.Printf("🌐 OTLP gRPC receiver listening on: %s\n", endpoint)
+	log.Printf("   📡 Accepting: traces, logs, and metrics\n")
 	if cfg.Verbose {
-		log.Printf("\n   Programs can send telemetry with:\n")
-		log.Printf("   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=%s\n", traceEndpoint)
-		log.Printf("   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=%s\n", logsEndpoint)
-		log.Printf("   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=%s\n", metricsEndpoint)
+		log.Printf("\n   Programs can send all telemetry with:\n")
+		log.Printf("   OTEL_EXPORTER_OTLP_ENDPOINT=%s\n", endpoint)
+		log.Printf("\n   Or per-signal (all use same endpoint):\n")
+		log.Printf("   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=%s\n", endpoint)
+		log.Printf("   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=%s\n", endpoint)
+		log.Printf("   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=%s\n", endpoint)
 	}
 
-	// 3. Create MCP server with unified storage and all endpoints
-	mcpServer, err := mcpserver.NewServer(obsStorage, mcpserver.Endpoints{
-		Traces:  traceEndpoint,
-		Logs:    logsEndpoint,
-		Metrics: metricsEndpoint,
-	})
+	// 3. Create MCP server with unified storage and endpoint
+	mcpServer, err := mcpserver.NewServer(obsStorage, endpoint)
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}
 
 	if cfg.Verbose {
 		log.Println("✅ MCP server created with 5 snapshot-first tools:")
-		log.Println("   - get_otlp_endpoints (all three signal types)")
+		log.Println("   - get_otlp_endpoint (single endpoint for all signals)")
 		log.Println("   - create_snapshot (bookmark buffer positions)")
 		log.Println("   - query (multi-signal query with filters)")
 		log.Println("   - get_snapshot_data (time-based query)")
@@ -198,9 +155,7 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 			log.Printf("📡 Received signal %v, initiating graceful shutdown...\n", sig)
 		}
 		cancel()
-		traceServer.Stop()
-		logsServer.Stop()
-		metricsServer.Stop()
+		otlpServer.Stop()
 	}()
 
 	// 5. Run MCP server on stdio (blocks until stdin closes or context cancelled)
@@ -209,19 +164,11 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 	log.Println()
 
 	if err := mcpServer.Run(ctx); err != nil {
-		// Check if any OTLP receiver had an error
+		// Check if OTLP receiver had an error
 		select {
-		case traceErr := <-traceErrChan:
-			if traceErr != nil {
-				return fmt.Errorf("trace receiver error: %w", traceErr)
-			}
-		case logsErr := <-logsErrChan:
-			if logsErr != nil {
-				return fmt.Errorf("logs receiver error: %w", logsErr)
-			}
-		case metricsErr := <-metricsErrChan:
-			if metricsErr != nil {
-				return fmt.Errorf("metrics receiver error: %w", metricsErr)
+		case otlpErr := <-otlpErrChan:
+			if otlpErr != nil {
+				return fmt.Errorf("OTLP receiver error: %w", otlpErr)
 			}
 		default:
 		}

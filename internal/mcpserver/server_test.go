@@ -9,13 +9,9 @@ import (
 // TestServerCreation verifies basic server initialization.
 func TestServerCreation(t *testing.T) {
 	obsStorage := storage.NewObservabilityStorage(100, 500, 1000)
-	endpoints := Endpoints{
-		Traces:  "localhost:54321",
-		Logs:    "localhost:54322",
-		Metrics: "localhost:54323",
-	}
+	endpoint := "localhost:54321"
 
-	server, err := NewServer(obsStorage, endpoints)
+	server, err := NewServer(obsStorage, endpoint)
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
@@ -24,14 +20,8 @@ func TestServerCreation(t *testing.T) {
 		t.Fatal("server is nil")
 	}
 
-	if server.endpoints.Traces != "localhost:54321" {
-		t.Fatalf("expected traces endpoint 'localhost:54321', got %q", server.endpoints.Traces)
-	}
-	if server.endpoints.Logs != "localhost:54322" {
-		t.Fatalf("expected logs endpoint 'localhost:54322', got %q", server.endpoints.Logs)
-	}
-	if server.endpoints.Metrics != "localhost:54323" {
-		t.Fatalf("expected metrics endpoint 'localhost:54323', got %q", server.endpoints.Metrics)
+	if server.endpoint != endpoint {
+		t.Fatalf("expected endpoint %q, got %q", endpoint, server.endpoint)
 	}
 
 	if server.storage != obsStorage {
@@ -45,43 +35,27 @@ func TestServerCreation(t *testing.T) {
 
 // TestServerCreationNilStorage verifies that NewServer rejects nil storage.
 func TestServerCreationNilStorage(t *testing.T) {
-	endpoints := Endpoints{
-		Traces:  "localhost:54321",
-		Logs:    "localhost:54322",
-		Metrics: "localhost:54323",
-	}
-
-	_, err := NewServer(nil, endpoints)
+	_, err := NewServer(nil, "localhost:54321")
 	if err == nil {
 		t.Fatal("expected error for nil storage, got nil")
 	}
 }
 
-// TestServerCreationEmptyTraceEndpoint verifies that NewServer rejects empty trace endpoint.
-func TestServerCreationEmptyTraceEndpoint(t *testing.T) {
+// TestServerCreationEmptyEndpoint verifies that NewServer rejects empty endpoint.
+func TestServerCreationEmptyEndpoint(t *testing.T) {
 	obsStorage := storage.NewObservabilityStorage(100, 500, 1000)
-	endpoints := Endpoints{
-		Traces:  "", // Empty trace endpoint
-		Logs:    "localhost:54322",
-		Metrics: "localhost:54323",
-	}
-
-	_, err := NewServer(obsStorage, endpoints)
+	_, err := NewServer(obsStorage, "")
 	if err == nil {
-		t.Fatal("expected error for empty trace endpoint, got nil")
+		t.Fatal("expected error for empty endpoint, got nil")
 	}
 }
 
 // TestServerToolRegistration verifies that all 5 snapshot-first tools are registered.
 func TestServerToolRegistration(t *testing.T) {
 	obsStorage := storage.NewObservabilityStorage(100, 500, 1000)
-	endpoints := Endpoints{
-		Traces:  "localhost:54321",
-		Logs:    "localhost:54322",
-		Metrics: "localhost:54323",
-	}
+	endpoint := "localhost:54321"
 
-	server, err := NewServer(obsStorage, endpoints)
+	server, err := NewServer(obsStorage, endpoint)
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
