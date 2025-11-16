@@ -130,19 +130,22 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 		log.Printf("   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=%s\n", endpoint)
 	}
 
-	// 3. Create MCP server with unified storage and endpoint
-	mcpServer, err := mcpserver.NewServer(obsStorage, endpoint)
+	// 3. Create MCP server with unified storage and receiver
+	mcpServer, err := mcpserver.NewServer(obsStorage, otlpServer)
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}
 
 	if cfg.Verbose {
-		log.Println("✅ MCP server created with 5 snapshot-first tools:")
-		log.Println("   - get_otlp_endpoint (single endpoint for all signals)")
+		log.Println("✅ MCP server created with 8 snapshot-first tools:")
+		log.Println("   - get_otlp_endpoint (get primary endpoint)")
+		log.Println("   - add_otlp_port (add listening ports on-demand)")
 		log.Println("   - create_snapshot (bookmark buffer positions)")
 		log.Println("   - query (multi-signal query with filters)")
 		log.Println("   - get_snapshot_data (time-based query)")
 		log.Println("   - manage_snapshots (list/delete/clear)")
+		log.Println("   - get_stats (buffer health dashboard)")
+		log.Println("   - clear_data (nuclear reset)")
 	}
 
 	// 4. Setup graceful shutdown on SIGINT/SIGTERM

@@ -12,15 +12,18 @@ import (
 // ═══════════════════════════════════════════════════════════════════════════
 // SNAPSHOT-FIRST MCP TOOLS
 //
-// Instead of 18+ signal-specific tools, we provide 5 snapshot-centric tools:
+// Instead of 18+ signal-specific tools, we provide 8 snapshot-centric tools:
 // 1. get_otlp_endpoint - Get the unified OTLP endpoint (one for all signals)
-// 2. create_snapshot - Bookmark current state across all buffers
-// 3. query - Multi-signal query with optional snapshot time range
-// 4. get_snapshot_data - Get all signals between two snapshots
-// 5. manage_snapshots - List and delete snapshots
+// 2. add_otlp_port - Add listening ports dynamically (multi-port support)
+// 3. create_snapshot - Bookmark current state across all buffers
+// 4. query - Multi-signal query with optional snapshot time range
+// 5. get_snapshot_data - Get all signals between two snapshots
+// 6. manage_snapshots - List and delete snapshots
+// 7. get_stats - Buffer health dashboard
+// 8. clear_data - Nuclear reset (wipes everything)
 //
 // Agents think: "What happened during deployment?" not "Get traces, then logs"
-// Single OTLP endpoint simplifies app configuration!
+// Multi-port support: add ports on-demand for long-running programs!
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Tool 1: get_otlp_endpoint
@@ -38,17 +41,61 @@ func (s *Server) handleGetOTLPEndpoint(
 	req *mcp.CallToolRequest,
 	input GetOTLPEndpointInput,
 ) (*mcp.CallToolResult, GetOTLPEndpointOutput, error) {
+	endpoint := s.otlpReceiver.Endpoint()
 	return &mcp.CallToolResult{}, GetOTLPEndpointOutput{
-		Endpoint: s.endpoint,
+		Endpoint: endpoint,
 		Protocol: "grpc",
 		EnvironmentVars: map[string]string{
-			"OTEL_EXPORTER_OTLP_ENDPOINT": s.endpoint,
+			"OTEL_EXPORTER_OTLP_ENDPOINT": endpoint,
 			"OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
 		},
 	}, nil
 }
 
-// Tool 2: create_snapshot
+// Tool 2: add_otlp_port
+
+type AddOTLPPortInput struct {
+	Port int `json:"port" jsonschema:"Port to add (1-65535)"`
+}
+
+type AddOTLPPortOutput struct {
+	Endpoints []string `json:"endpoints" jsonschema:"All active OTLP endpoint addresses"`
+	Success   bool     `json:"success" jsonschema:"Whether port addition succeeded"`
+	Message   string   `json:"message,omitempty" jsonschema:"Additional information or error message"`
+}
+
+func (s *Server) handleAddOTLPPort(
+	ctx context.Context,
+	req *mcp.CallToolRequest,
+	input AddOTLPPortInput,
+) (*mcp.CallToolResult, AddOTLPPortOutput, error) {
+	// Validate port range
+	if input.Port < 1 || input.Port > 65535 {
+		return &mcp.CallToolResult{}, AddOTLPPortOutput{
+			Endpoints: s.otlpReceiver.Endpoints(),
+			Success:   false,
+			Message:   fmt.Sprintf("invalid port %d: must be between 1 and 65535", input.Port),
+		}, nil
+	}
+
+	// Attempt to add port
+	if err := s.otlpReceiver.AddPort(ctx, input.Port); err != nil {
+		return &mcp.CallToolResult{}, AddOTLPPortOutput{
+			Endpoints: s.otlpReceiver.Endpoints(),
+			Success:   false,
+			Message:   fmt.Sprintf("failed to add port: %v", err),
+		}, nil
+	}
+
+	endpoints := s.otlpReceiver.Endpoints()
+	return &mcp.CallToolResult{}, AddOTLPPortOutput{
+		Endpoints: endpoints,
+		Success:   true,
+		Message:   fmt.Sprintf("successfully added port %d - now listening on %d ports", input.Port, len(endpoints)),
+	}, nil
+}
+
+// Tool 3: create_snapshot
 
 type CreateSnapshotInput struct {
 	Name string `json:"name" jsonschema:"Snapshot name (e.g. 'before-deploy', 'test-start')"`
@@ -399,6 +446,11 @@ func (s *Server) registerTools() error {
 		Name:        "get_otlp_endpoint",
 		Description: "Get the unified OTLP endpoint address - always call this first, then set OTEL_EXPORTER_OTLP_ENDPOINT when running instrumented programs. Single port accepts traces, logs, and metrics.",
 	}, s.handleGetOTLPEndpoint)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "add_otlp_port",
+		Description: "Add an additional listening port to the OTLP receiver without disrupting existing connections. Useful when Claude Code restarts and you need to listen on a port that running programs are using. The server will accept telemetry on all added ports simultaneously.",
+	}, s.handleAddOTLPPort)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_snapshot",
