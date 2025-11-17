@@ -33,3 +33,4 @@ dist/
 
 # Local configuration
 .otlp-mcp.json
+.gemini/
