@@ -488,32 +488,32 @@ func (s *Server) handleClearData(
 func (s *Server) registerTools() error {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_otlp_endpoint",
-		Description: "Get the unified OTLP endpoint address - always call this first, then set OTEL_EXPORTER_OTLP_ENDPOINT when running instrumented programs. Single port accepts traces, logs, and metrics.",
+		Description: "🚀 START HERE: Get the unified OTLP (OpenTelemetry Protocol) endpoint address. Call this FIRST when working with OpenTelemetry instrumentation, then set OTEL_EXPORTER_OTLP_ENDPOINT=<endpoint> when running programs. Single port accepts traces + logs + metrics from any OTLP-compatible instrumentation (OpenTelemetry SDKs, auto-instrumentation, etc.).",
 	}, s.handleGetOTLPEndpoint)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "add_otlp_port",
-		Description: "Add an additional listening port to the OTLP receiver without disrupting existing connections. Useful when Claude Code restarts and you need to listen on a port that running programs are using. The server will accept telemetry on all added ports simultaneously.",
+		Description: "Add an additional listening port to the OTLP receiver without disrupting existing connections. Useful when Claude Code restarts and you need to listen on a port that running programs are using. The server will accept OpenTelemetry telemetry on all added ports simultaneously. Example: add_otlp_port(40187) to listen on a specific port your application expects.",
 	}, s.handleAddOTLPPort)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "remove_otlp_port",
-		Description: "Remove a listening port from the OTLP receiver. The server on that port is gracefully stopped. Cannot remove the last port - at least one must remain active. Useful for cleaning up ports that are no longer needed.",
+		Description: "Remove a listening port from the OTLP receiver. The server on that port is gracefully stopped. Cannot remove the last port - at least one must remain active. Useful for cleaning up ports that are no longer needed after programs finish.",
 	}, s.handleRemoveOTLPPort)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_snapshot",
-		Description: "Bookmark this moment in time with a descriptive name (e.g. 'before-deploy', 'test-start'). Creates a reference point across all signals so you can compare before/after or query time windows. Think: Git commit for live telemetry.",
+		Description: "Bookmark this moment in time with a descriptive name (e.g. 'before-deploy', 'test-start', 'after-fix'). Creates a reference point across all OpenTelemetry signals (traces, logs, metrics) so you can compare before/after or query time windows. Think: Git commit for live telemetry. Essential for temporal analysis and debugging.",
 	}, s.handleCreateSnapshot)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "query",
-		Description: "Search across all signals (traces, logs, metrics) with optional filters. Use for ad-hoc exploration: filter by service name during deployments, trace_id for debugging specific requests, or combine with snapshot time ranges for temporal analysis.",
+		Description: "Search across all OpenTelemetry signals (traces, logs, metrics) with optional filters. Use for ad-hoc observability exploration: filter by service name, trace_id for debugging distributed requests, severity for error analysis, or combine with snapshot time ranges for temporal analysis. Perfect for answering 'show me all ERROR logs' or 'find traces for service X'.",
 	}, s.handleQuery)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_snapshot_data",
-		Description: "Get everything that happened between two snapshots - perfect for before/after analysis. Ask: 'What traces/logs/metrics appeared during deployment?' Unlocks temporal reasoning: snapshot 'before-deploy' + 'after-deploy' = complete picture of changes.",
+		Description: "Get everything that happened between two snapshots - perfect for before/after observability analysis. Ask: 'What traces/logs/metrics appeared during deployment?' or 'What changed between test runs?'. Unlocks temporal reasoning: snapshot 'before-deploy' + 'after-deploy' = complete picture of system behavior changes. The foundation of snapshot-driven debugging.",
 	}, s.handleGetSnapshotData)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
@@ -523,7 +523,7 @@ func (s *Server) registerTools() error {
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_stats",
-		Description: "Buffer health dashboard - check capacity, current usage, and snapshot count. Use before long-running tests to ensure you won't wrap and lose early data. Answers: 'Am I capturing telemetry?' and 'How much history do I have?'",
+		Description: "Buffer health dashboard - check OpenTelemetry data capacity, current usage, and snapshot count. Use before long-running tests/observations to ensure buffers won't wrap and lose early data. Answers: 'Am I capturing telemetry?', 'How much history do I have?', and 'Will my buffers overflow?'. Shows span/log/metric counts and capacity limits.",
 	}, s.handleGetStats)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{

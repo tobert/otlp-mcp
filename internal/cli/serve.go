@@ -24,35 +24,40 @@ func ServeCommand() *cli.Command {
 MCP server on stdio. The agent can query the OTLP endpoint and trace
 data via MCP tools.`,
 		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "config",
+				Aliases: []string{"c"},
+				Usage:   "Path to config file (default: search for .otlp-mcp.json)",
+			},
 			&cli.IntFlag{
 				Name:  "trace-buffer-size",
-				Usage: "Number of spans to buffer",
-				Value: 10_000,
+				Usage: "Number of spans to buffer (overrides config file)",
+				Value: 0, // 0 means use config/default
 			},
 			&cli.IntFlag{
 				Name:  "log-buffer-size",
-				Usage: "Number of log records to buffer",
-				Value: 50_000,
+				Usage: "Number of log records to buffer (overrides config file)",
+				Value: 0, // 0 means use config/default
 			},
 			&cli.IntFlag{
 				Name:  "metric-buffer-size",
-				Usage: "Number of metric points to buffer",
-				Value: 100_000,
+				Usage: "Number of metric points to buffer (overrides config file)",
+				Value: 0, // 0 means use config/default
 			},
 			&cli.StringFlag{
 				Name:  "otlp-host",
-				Usage: "OTLP server bind address",
-				Value: "127.0.0.1",
+				Usage: "OTLP server bind address (overrides config file)",
+				Value: "",
 			},
 			&cli.IntFlag{
 				Name:  "otlp-port",
-				Usage: "OTLP server port (0 for ephemeral)",
-				Value: 0,
+				Usage: "OTLP server port, 0 for ephemeral (overrides config file)",
+				Value: -1, // -1 means not set
 			},
 			&cli.BoolFlag{
 				Name:    "verbose",
 				Aliases: []string{"v"},
-				Usage:   "Enable verbose logging",
+				Usage:   "Enable verbose logging (overrides config file)",
 			},
 		},
 		Action: runServe,
@@ -62,17 +67,44 @@ data via MCP tools.`,
 // runServe is the action handler for the serve command.
 // It wires together all components: storage, OTLP receiver, and MCP server.
 func runServe(cliCtx context.Context, cmd *cli.Command) error {
-	cfg := &Config{
-		TraceBufferSize:  cmd.Int("trace-buffer-size"),
-		LogBufferSize:    cmd.Int("log-buffer-size"),
-		MetricBufferSize: cmd.Int("metric-buffer-size"),
-		OTLPHost:         cmd.String("otlp-host"),
-		OTLPPort:         cmd.Int("otlp-port"),
-		Verbose:          cmd.Bool("verbose"),
+	// Load effective config from files
+	configPath := cmd.String("config")
+	cfg, err := LoadEffectiveConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+
+	// Apply CLI flag overrides (highest precedence)
+	if traceSize := cmd.Int("trace-buffer-size"); traceSize > 0 {
+		cfg.TraceBufferSize = traceSize
+	}
+	if logSize := cmd.Int("log-buffer-size"); logSize > 0 {
+		cfg.LogBufferSize = logSize
+	}
+	if metricSize := cmd.Int("metric-buffer-size"); metricSize > 0 {
+		cfg.MetricBufferSize = metricSize
+	}
+	if host := cmd.String("otlp-host"); host != "" {
+		cfg.OTLPHost = host
+	}
+	if port := cmd.Int("otlp-port"); port >= 0 { // 0 is valid (ephemeral), -1 means not set
+		cfg.OTLPPort = port
+	}
+	if cmd.IsSet("verbose") { // Only override if explicitly set
+		cfg.Verbose = cmd.Bool("verbose")
 	}
 
 	if cfg.Verbose {
 		log.Println("🔧 Configuration:")
+		if configPath != "" {
+			log.Printf("  Config file: %s\n", configPath)
+		} else if projectPath, err := FindProjectConfig(); err == nil {
+			log.Printf("  Config file: %s (project)\n", projectPath)
+		} else if globalPath := GlobalConfigPath(); globalPath != "" {
+			if _, err := os.Stat(globalPath); err == nil {
+				log.Printf("  Config file: %s (global)\n", globalPath)
+			}
+		}
 		log.Printf("  Trace buffer: %d spans\n", cfg.TraceBufferSize)
 		log.Printf("  Log buffer: %d records\n", cfg.LogBufferSize)
 		log.Printf("  Metric buffer: %d points\n", cfg.MetricBufferSize)

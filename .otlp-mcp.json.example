@@ -1,0 +1,9 @@
+{
+  "comment": "Example configuration for otlp-mcp - copy to .otlp-mcp.json and customize",
+  "otlp_port": 4317,
+  "otlp_host": "127.0.0.1",
+  "trace_buffer_size": 20000,
+  "log_buffer_size": 100000,
+  "metric_buffer_size": 200000,
+  "verbose": false
+}

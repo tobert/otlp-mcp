@@ -1,0 +1,4 @@
+{
+  "comment": "Default configuration for otlp-mcp development",
+  "otlp_port": 4317
+}

@@ -36,8 +36,32 @@ func NewServer(obsStorage *storage.ObservabilityStorage, otlpReceiver *otlprecei
 	// Create MCP server with implementation metadata
 	s.mcpServer = mcp.NewServer(&mcp.Implementation{
 		Name:    "otlp-mcp",
+		Title:   "OpenTelemetry Observability for Agents",
 		Version: "0.2.0", // Bumped for snapshot-first redesign
-	}, nil)
+	}, &mcp.ServerOptions{
+		Instructions: `🔭 OpenTelemetry Observability via MCP
+
+This server enables real-time observability for OpenTelemetry-instrumented programs:
+• Captures OTLP traces, logs, and metrics in memory (no external dependencies!)
+• Provides snapshot-based temporal queries ("what happened during deployment?")
+• Dynamic port management - add/remove OTLP ports on-demand
+• Perfect for debugging, testing, performance analysis, and understanding system behavior
+
+💡 Quick Start Workflow:
+1. get_otlp_endpoint - Get the OTLP endpoint address (or add_otlp_port for specific port)
+2. Run your instrumented program: OTEL_EXPORTER_OTLP_ENDPOINT=<endpoint> ./yourapp
+3. create_snapshot before and after key events (e.g., 'before-test', 'after-deploy')
+4. query or get_snapshot_data to analyze what happened between snapshots
+
+🎯 Use Cases:
+• Observing test runs: see exactly what traces/logs/metrics your tests generated
+• Performance debugging: capture spans and find slow operations
+• Integration testing: verify your app emits correct telemetry
+• CI/CD analysis: compare telemetry before/after deployments
+
+📌 Pro Tip: Use this whenever you see OpenTelemetry, OTLP, tracing, or observability!
+The unified endpoint accepts traces + logs + metrics on a single port.`,
+	})
 
 	// Register all tools
 	if err := s.registerTools(); err != nil {
