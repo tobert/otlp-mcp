@@ -109,14 +109,14 @@ You're succeeding when:
 
 | Command | Purpose | When to Use |
 |---------|---------|------------|
-| `jj new -m "..."` | Start new work | Beginning tasks |
-| `jj describe` | Update context | When you learn something |
-| `jj log -n 10` | See recent work | Starting sessions |
-| `jj show @` | View current state | Understanding context |
-| `jj obslog -p` | See reasoning evolution | Debugging decisions |
-| `jj git push -c @` | Persist to GitHub | Work complete |
-| `mv/rm <path>` | Move/Remove files | `jj` automatically tracks filesystem changes. Use standard shell commands. |
-| `jj file untrack <path>` | Stop tracking a file | Use after `rm` if you don't want the deletion recorded. |
+| `jj new -m '...'` | Start new work | Beginning tasks. **Use single quotes for multi-line messages.** |
+| `jj describe` | Update context/commit message | When you learn something or made a typo. |
+| `jj log -n 10` | See recent work | Starting sessions. |
+| `jj show @` | View changes **in** current commit | "What have I done in this change?" (like `git show HEAD`) |
+| `jj diff` | View uncommitted changes | "What have I done since the last commit?" (like `git diff HEAD`) |
+| `jj abandon @` | **Undo** the last commit | "Oops, that was wrong." Moves changes back to working copy. |
+| `jj obslog -p` | See reasoning evolution | Debugging decisions. |
+| `jj git push -c @` | Persist to GitHub | Work complete. |
 
 ### Your Style Is Welcome
 
@@ -183,7 +183,7 @@ go tool cover -html=coverage.out
 # Install dependencies
 go mod download
 
-# Update dependencies
+# Tidy dependencies (run after adding/removing imports)
 go mod tidy
 
 # Verify dependencies
