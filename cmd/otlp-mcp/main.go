@@ -18,6 +18,7 @@ func main() {
 		Version: version,
 		Commands: []*cliframework.Command{
 			cli.ServeCommand(),
+			cli.DoctorCommand(version),
 		},
 	}
 
