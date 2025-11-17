@@ -30,3 +30,6 @@ Thumbs.db
 
 # Goreleaser
 dist/
+
+# Local configuration
+.otlp-mcp.json

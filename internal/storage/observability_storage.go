@@ -149,6 +149,7 @@ func (os *ObservabilityStorage) GetSnapshotData(startSnapshot, endSnapshot strin
 
 // QueryFilter specifies multi-signal query criteria.
 type QueryFilter struct {
+	// Basic filters
 	ServiceName   string   `json:"service_name,omitempty"`
 	TraceID       string   `json:"trace_id,omitempty"`
 	SpanName      string   `json:"span_name,omitempty"`
@@ -157,6 +158,18 @@ type QueryFilter struct {
 	StartSnapshot string   `json:"start_snapshot,omitempty"`
 	EndSnapshot   string   `json:"end_snapshot,omitempty"`
 	Limit         int      `json:"limit,omitempty"` // 0 = no limit
+
+	// Status filters
+	ErrorsOnly bool   `json:"errors_only,omitempty"`
+	SpanStatus string `json:"span_status,omitempty"` // "OK", "ERROR", "UNSET"
+
+	// Duration filters (nanoseconds)
+	MinDurationNs *uint64 `json:"min_duration_ns,omitempty"`
+	MaxDurationNs *uint64 `json:"max_duration_ns,omitempty"`
+
+	// Attribute filters
+	HasAttribute    string            `json:"has_attribute,omitempty"`
+	AttributeEquals map[string]string `json:"attribute_equals,omitempty"`
 }
 
 // QueryResult contains filtered telemetry data across all signals.
@@ -333,9 +346,13 @@ func filterTraces(traces []*StoredSpan, filter QueryFilter) []*StoredSpan {
 	hasServiceFilter := filter.ServiceName != ""
 	hasTraceIDFilter := filter.TraceID != ""
 	hasSpanNameFilter := filter.SpanName != ""
+	hasStatusFilter := filter.ErrorsOnly || filter.SpanStatus != ""
+	hasDurationFilter := filter.MinDurationNs != nil || filter.MaxDurationNs != nil
+	hasAttributeFilter := filter.HasAttribute != "" || len(filter.AttributeEquals) > 0
 
-	// If no filters that could match traces, return all
-	if !hasServiceFilter && !hasTraceIDFilter && !hasSpanNameFilter {
+	// If no filters, return all
+	if !hasServiceFilter && !hasTraceIDFilter && !hasSpanNameFilter &&
+	   !hasStatusFilter && !hasDurationFilter && !hasAttributeFilter {
 		return traces
 	}
 
@@ -351,6 +368,28 @@ func filterTraces(traces []*StoredSpan, filter QueryFilter) []*StoredSpan {
 		if hasSpanNameFilter && span.SpanName != filter.SpanName {
 			continue
 		}
+
+		// Status filter
+		if hasStatusFilter {
+			if !matchesStatusFilter(span, filter) {
+				continue
+			}
+		}
+
+		// Duration filter
+		if hasDurationFilter {
+			if !matchesDurationFilter(span, filter) {
+				continue
+			}
+		}
+
+		// Attribute filter
+		if hasAttributeFilter {
+			if !matchesAttributeFilter(span.Span.Attributes, filter) {
+				continue
+			}
+		}
+
 		result = append(result, span)
 	}
 	return result
@@ -361,9 +400,10 @@ func filterLogs(logs []*StoredLog, filter QueryFilter) []*StoredLog {
 	hasServiceFilter := filter.ServiceName != ""
 	hasTraceIDFilter := filter.TraceID != ""
 	hasSeverityFilter := filter.LogSeverity != ""
+	hasAttributeFilter := filter.HasAttribute != "" || len(filter.AttributeEquals) > 0
 
 	// If no filters that could match logs, return all
-	if !hasServiceFilter && !hasTraceIDFilter && !hasSeverityFilter {
+	if !hasServiceFilter && !hasTraceIDFilter && !hasSeverityFilter && !hasAttributeFilter {
 		return logs
 	}
 
@@ -379,6 +419,14 @@ func filterLogs(logs []*StoredLog, filter QueryFilter) []*StoredLog {
 		if hasSeverityFilter && log.Severity != filter.LogSeverity {
 			continue
 		}
+
+		// Attribute filter
+		if hasAttributeFilter && log.LogRecord != nil {
+			if !matchesAttributeFilter(log.LogRecord.Attributes, filter) {
+				continue
+			}
+		}
+
 		result = append(result, log)
 	}
 	return result

@@ -8,9 +8,31 @@ set -e  # Exit on error
 echo "🧪 Testing otlp-mcp configuration file feature"
 echo "=============================================="
 
+# Save original directory
+ORIGINAL_DIR=$(pwd)
+
 # Build the binary first
 echo "📦 Building otlp-mcp..."
 go build -o otlp-mcp ./cmd/otlp-mcp || exit 1
+
+# Create a temporary directory for tests
+TEST_DIR=$(mktemp -d)
+echo "📁 Using test directory: $TEST_DIR"
+
+# Copy binary to test directory
+cp otlp-mcp "$TEST_DIR/"
+
+# Change to test directory for all tests
+cd "$TEST_DIR"
+
+# Cleanup function
+cleanup() {
+    cd "$ORIGINAL_DIR"
+    rm -rf "$TEST_DIR"
+}
+
+# Set trap to cleanup on exit
+trap cleanup EXIT
 
 # Helper function to extract port from verbose output
 extract_port() {
@@ -26,12 +48,9 @@ extract_trace_buffer() {
 echo ""
 echo "Test 1: Default configuration (no config file)"
 echo "-----------------------------------------------"
-# Move to tmp to avoid picking up project config
-cd /tmp
-OUTPUT=$($OLDPWD/otlp-mcp serve --verbose 2>&1 | head -20)
+OUTPUT=$(./otlp-mcp serve --verbose 2>&1 | head -20)
 PORT=$(extract_port "$OUTPUT")
 TRACE_BUF=$(extract_trace_buffer "$OUTPUT")
-cd - > /dev/null
 
 if [ "$PORT" = "0" ]; then
     echo "✅ Default: Using ephemeral port (0)"
@@ -182,9 +201,6 @@ else
     echo "❌ Expected read error for nonexistent file"
     exit 1
 fi
-
-# Clean up test files
-rm -f .otlp-mcp.json /tmp/custom-config.json /tmp/comment-config.json /tmp/invalid-config.json
 
 echo ""
 echo "=============================================="

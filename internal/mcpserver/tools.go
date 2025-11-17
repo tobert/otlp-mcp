@@ -185,6 +185,7 @@ func (s *Server) handleCreateSnapshot(
 // Tool 3: query (multi-signal with optional snapshots)
 
 type QueryInput struct {
+	// Basic filters
 	ServiceName   string   `json:"service_name,omitempty" jsonschema:"Filter by service name"`
 	TraceID       string   `json:"trace_id,omitempty" jsonschema:"Filter by trace ID (hex format)"`
 	SpanName      string   `json:"span_name,omitempty" jsonschema:"Filter by span operation name"`
@@ -193,6 +194,18 @@ type QueryInput struct {
 	StartSnapshot string   `json:"start_snapshot,omitempty" jsonschema:"Start of time range (snapshot name)"`
 	EndSnapshot   string   `json:"end_snapshot,omitempty" jsonschema:"End of time range (snapshot name, empty = current)"`
 	Limit         int      `json:"limit,omitempty" jsonschema:"Maximum results per signal type (0 = no limit)"`
+
+	// Status filters (NEW)
+	ErrorsOnly bool   `json:"errors_only,omitempty" jsonschema:"Only return spans with error status (shortcut for span_status=ERROR)"`
+	SpanStatus string `json:"span_status,omitempty" jsonschema:"Filter by span status: OK, ERROR, or UNSET"`
+
+	// Duration filters in nanoseconds (NEW)
+	MinDurationNs *uint64 `json:"min_duration_ns,omitempty" jsonschema:"Minimum span duration in nanoseconds (e.g., 500000000 for 500ms)"`
+	MaxDurationNs *uint64 `json:"max_duration_ns,omitempty" jsonschema:"Maximum span duration in nanoseconds"`
+
+	// Attribute filters (NEW)
+	HasAttribute   string            `json:"has_attribute,omitempty" jsonschema:"Filter spans/logs that have this attribute key (e.g., 'http.status_code')"`
+	AttributeEquals map[string]string `json:"attribute_equals,omitempty" jsonschema:"Filter by attribute key-value pairs (e.g., {'http.status_code': '500'})"`
 }
 
 type QueryOutput struct {
@@ -216,6 +229,7 @@ func (s *Server) handleQuery(
 	input QueryInput,
 ) (*mcp.CallToolResult, QueryOutput, error) {
 	filter := storage.QueryFilter{
+		// Basic filters
 		ServiceName:   input.ServiceName,
 		TraceID:       input.TraceID,
 		SpanName:      input.SpanName,
@@ -224,6 +238,14 @@ func (s *Server) handleQuery(
 		StartSnapshot: input.StartSnapshot,
 		EndSnapshot:   input.EndSnapshot,
 		Limit:         input.Limit,
+
+		// New filters
+		ErrorsOnly:       input.ErrorsOnly,
+		SpanStatus:       input.SpanStatus,
+		MinDurationNs:    input.MinDurationNs,
+		MaxDurationNs:    input.MaxDurationNs,
+		HasAttribute:     input.HasAttribute,
+		AttributeEquals:  input.AttributeEquals,
 	}
 
 	result, err := s.storage.Query(filter)
