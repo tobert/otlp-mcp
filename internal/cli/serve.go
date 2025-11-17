@@ -165,6 +165,7 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 	// 5. Run MCP server on stdio (blocks until stdin closes or context cancelled)
 	log.Println("🎯 MCP server ready on stdio")
 	log.Println("💡 Use MCP tools to query traces and get the OTLP endpoint")
+	log.Println("💡 If programs need a specific port, use add_otlp_port to listen on it")
 	log.Println()
 
 	if err := mcpServer.Run(ctx); err != nil {
