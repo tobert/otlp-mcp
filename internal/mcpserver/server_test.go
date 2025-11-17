@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/tobert/otlp-mcp/internal/otlpreceiver"
@@ -243,5 +244,82 @@ func TestAddOTLPPortHandler(t *testing.T) {
 
 	if invalidOutput.Success {
 		t.Error("expected failure for invalid port, got success")
+	}
+}
+
+// TestRemoveOTLPPortHandler verifies the remove_otlp_port tool handler.
+func TestRemoveOTLPPortHandler(t *testing.T) {
+	obsStorage := storage.NewObservabilityStorage(100, 500, 1000)
+
+	// Start with ephemeral port
+	otlpReceiver, err := otlpreceiver.NewUnifiedServer(
+		otlpreceiver.Config{Host: "127.0.0.1", Port: 0},
+		obsStorage,
+	)
+	if err != nil {
+		t.Fatalf("failed to create OTLP receiver: %v", err)
+	}
+	defer otlpReceiver.Stop()
+
+	ctx := context.Background()
+	go otlpReceiver.Start(ctx)
+
+	originalEndpoint := otlpReceiver.Endpoint()
+	t.Logf("Original endpoint: %s", originalEndpoint)
+
+	server, err := NewServer(obsStorage, otlpReceiver)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	// Add a port first
+	newPort := 45679
+	_, addOutput, err := server.handleAddOTLPPort(ctx, nil, AddOTLPPortInput{Port: newPort})
+	if err != nil {
+		t.Fatalf("handleAddOTLPPort failed: %v", err)
+	}
+	if !addOutput.Success {
+		t.Fatalf("add port failed: %s", addOutput.Message)
+	}
+	if len(addOutput.Endpoints) != 2 {
+		t.Errorf("expected 2 endpoints after adding, got %d", len(addOutput.Endpoints))
+	}
+
+	// Now remove the added port
+	_, removeOutput, err := server.handleRemoveOTLPPort(ctx, nil, RemoveOTLPPortInput{Port: newPort})
+	if err != nil {
+		t.Fatalf("handleRemoveOTLPPort failed: %v", err)
+	}
+	if !removeOutput.Success {
+		t.Errorf("remove port failed: %s", removeOutput.Message)
+	}
+	if len(removeOutput.Endpoints) != 1 {
+		t.Errorf("expected 1 endpoint after removing, got %d", len(removeOutput.Endpoints))
+	}
+
+	// Test removing the last port (should fail)
+	endpoints := otlpReceiver.Endpoints()
+	if len(endpoints) != 1 {
+		t.Fatalf("expected 1 endpoint, got %d", len(endpoints))
+	}
+	// Extract port from endpoint like "127.0.0.1:12345"
+	var lastPort int
+	fmt.Sscanf(endpoints[0], "127.0.0.1:%d", &lastPort)
+
+	_, lastPortOutput, err := server.handleRemoveOTLPPort(ctx, nil, RemoveOTLPPortInput{Port: lastPort})
+	if err != nil {
+		t.Fatalf("handleRemoveOTLPPort with last port failed: %v", err)
+	}
+	if lastPortOutput.Success {
+		t.Error("expected failure when removing last port, got success")
+	}
+
+	// Test removing non-existent port
+	_, notFoundOutput, err := server.handleRemoveOTLPPort(ctx, nil, RemoveOTLPPortInput{Port: 99999})
+	if err != nil {
+		t.Fatalf("handleRemoveOTLPPort with non-existent port failed: %v", err)
+	}
+	if notFoundOutput.Success {
+		t.Error("expected failure for non-existent port, got success")
 	}
 }

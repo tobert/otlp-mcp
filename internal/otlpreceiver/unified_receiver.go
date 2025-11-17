@@ -32,7 +32,7 @@ type UnifiedServer struct {
 	listeners   []net.Listener
 	grpcServers []*grpc.Server
 	receiver    UnifiedReceiver
-	mu          sync.Mutex // protects port additions
+	mu          sync.Mutex // protects all port operations (add/remove/list)
 	ctx         context.Context
 	stopOnce    sync.Once
 	stopChan    chan struct{}
@@ -125,7 +125,11 @@ func (s *UnifiedServer) Endpoint() string {
 }
 
 // Endpoints returns all listening addresses.
+// Thread-safe: protected by mutex.
 func (s *UnifiedServer) Endpoints() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	endpoints := make([]string, len(s.listeners))
 	for i, listener := range s.listeners {
 		endpoints[i] = listener.Addr().String()
@@ -176,6 +180,42 @@ func (s *UnifiedServer) AddPort(ctx context.Context, port int) error {
 	}
 
 	return fmt.Errorf("port %s failed health check - not accepting connections after 50ms", checkAddr)
+}
+
+// RemovePort removes a listening port from the server.
+// The grpcServer on that port is gracefully stopped.
+// Cannot remove the last port - at least one port must remain active.
+func (s *UnifiedServer) RemovePort(port int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Prevent removing the last port
+	if len(s.listeners) <= 1 {
+		return fmt.Errorf("cannot remove last port - server must have at least one active port")
+	}
+
+	// Find the port index
+	addr := fmt.Sprintf("%s:%d", s.host, port)
+	foundIndex := -1
+	for i, listener := range s.listeners {
+		if listener.Addr().String() == addr {
+			foundIndex = i
+			break
+		}
+	}
+
+	if foundIndex == -1 {
+		return fmt.Errorf("port %d not found in active listeners", port)
+	}
+
+	// Gracefully stop the grpcServer for this port
+	s.grpcServers[foundIndex].GracefulStop()
+
+	// Remove from slices (preserve order)
+	s.listeners = append(s.listeners[:foundIndex], s.listeners[foundIndex+1:]...)
+	s.grpcServers = append(s.grpcServers[:foundIndex], s.grpcServers[foundIndex+1:]...)
+
+	return nil
 }
 
 // Service implementations

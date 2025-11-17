@@ -12,18 +12,19 @@ import (
 // ═══════════════════════════════════════════════════════════════════════════
 // SNAPSHOT-FIRST MCP TOOLS
 //
-// Instead of 18+ signal-specific tools, we provide 8 snapshot-centric tools:
+// Instead of 18+ signal-specific tools, we provide 9 snapshot-centric tools:
 // 1. get_otlp_endpoint - Get the unified OTLP endpoint (one for all signals)
 // 2. add_otlp_port - Add listening ports dynamically (multi-port support)
-// 3. create_snapshot - Bookmark current state across all buffers
-// 4. query - Multi-signal query with optional snapshot time range
-// 5. get_snapshot_data - Get all signals between two snapshots
-// 6. manage_snapshots - List and delete snapshots
-// 7. get_stats - Buffer health dashboard
-// 8. clear_data - Nuclear reset (wipes everything)
+// 3. remove_otlp_port - Remove ports when no longer needed
+// 4. create_snapshot - Bookmark current state across all buffers
+// 5. query - Multi-signal query with optional snapshot time range
+// 6. get_snapshot_data - Get all signals between two snapshots
+// 7. manage_snapshots - List and delete snapshots
+// 8. get_stats - Buffer health dashboard
+// 9. clear_data - Nuclear reset (wipes everything)
 //
 // Agents think: "What happened during deployment?" not "Get traces, then logs"
-// Multi-port support: add ports on-demand for long-running programs!
+// Dynamic port management: add/remove ports on-demand for long-running programs!
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Tool 1: get_otlp_endpoint
@@ -95,7 +96,50 @@ func (s *Server) handleAddOTLPPort(
 	}, nil
 }
 
-// Tool 3: create_snapshot
+// Tool 3: remove_otlp_port
+
+type RemoveOTLPPortInput struct {
+	Port int `json:"port" jsonschema:"Port to remove (1-65535)"`
+}
+
+type RemoveOTLPPortOutput struct {
+	Endpoints []string `json:"endpoints" jsonschema:"Remaining active OTLP endpoint addresses"`
+	Success   bool     `json:"success" jsonschema:"Whether port removal succeeded"`
+	Message   string   `json:"message,omitempty" jsonschema:"Additional information or error message"`
+}
+
+func (s *Server) handleRemoveOTLPPort(
+	ctx context.Context,
+	req *mcp.CallToolRequest,
+	input RemoveOTLPPortInput,
+) (*mcp.CallToolResult, RemoveOTLPPortOutput, error) {
+	// Validate port range
+	if input.Port < 1 || input.Port > 65535 {
+		return &mcp.CallToolResult{}, RemoveOTLPPortOutput{
+			Endpoints: s.otlpReceiver.Endpoints(),
+			Success:   false,
+			Message:   fmt.Sprintf("invalid port %d: must be between 1 and 65535", input.Port),
+		}, nil
+	}
+
+	// Attempt to remove port
+	if err := s.otlpReceiver.RemovePort(input.Port); err != nil {
+		return &mcp.CallToolResult{}, RemoveOTLPPortOutput{
+			Endpoints: s.otlpReceiver.Endpoints(),
+			Success:   false,
+			Message:   fmt.Sprintf("failed to remove port: %v", err),
+		}, nil
+	}
+
+	endpoints := s.otlpReceiver.Endpoints()
+	return &mcp.CallToolResult{}, RemoveOTLPPortOutput{
+		Endpoints: endpoints,
+		Success:   true,
+		Message:   fmt.Sprintf("successfully removed port %d - now listening on %d ports", input.Port, len(endpoints)),
+	}, nil
+}
+
+// Tool 4: create_snapshot
 
 type CreateSnapshotInput struct {
 	Name string `json:"name" jsonschema:"Snapshot name (e.g. 'before-deploy', 'test-start')"`
@@ -451,6 +495,11 @@ func (s *Server) registerTools() error {
 		Name:        "add_otlp_port",
 		Description: "Add an additional listening port to the OTLP receiver without disrupting existing connections. Useful when Claude Code restarts and you need to listen on a port that running programs are using. The server will accept telemetry on all added ports simultaneously.",
 	}, s.handleAddOTLPPort)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "remove_otlp_port",
+		Description: "Remove a listening port from the OTLP receiver. The server on that port is gracefully stopped. Cannot remove the last port - at least one must remain active. Useful for cleaning up ports that are no longer needed.",
+	}, s.handleRemoveOTLPPort)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_snapshot",

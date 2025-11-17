@@ -137,9 +137,10 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 	}
 
 	if cfg.Verbose {
-		log.Println("✅ MCP server created with 8 snapshot-first tools:")
+		log.Println("✅ MCP server created with 9 snapshot-first tools:")
 		log.Println("   - get_otlp_endpoint (get primary endpoint)")
 		log.Println("   - add_otlp_port (add listening ports on-demand)")
+		log.Println("   - remove_otlp_port (remove ports when done)")
 		log.Println("   - create_snapshot (bookmark buffer positions)")
 		log.Println("   - query (multi-signal query with filters)")
 		log.Println("   - get_snapshot_data (time-based query)")
