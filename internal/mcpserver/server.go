@@ -37,7 +37,7 @@ func NewServer(obsStorage *storage.ObservabilityStorage, otlpReceiver *otlprecei
 	s.mcpServer = mcp.NewServer(&mcp.Implementation{
 		Name:    "otlp-mcp",
 		Title:   "OpenTelemetry Observability for Agents",
-		Version: "0.2.0", // Bumped for snapshot-first redesign
+		Version: "0.3.0", // v0.3.0: doctor + richer query filters
 	}, &mcp.ServerOptions{
 		Instructions: `🔭 OpenTelemetry Observability via MCP
 
@@ -45,19 +45,22 @@ This server enables real-time observability for OpenTelemetry-instrumented progr
 • Captures OTLP traces, logs, and metrics in memory (no external dependencies!)
 • Provides snapshot-based temporal queries ("what happened during deployment?")
 • Dynamic port management - add/remove OTLP ports on-demand
+• Powerful query filters - find errors, slow operations, specific attributes
 • Perfect for debugging, testing, performance analysis, and understanding system behavior
 
 💡 Quick Start Workflow:
 1. get_otlp_endpoint - Get the OTLP endpoint address (or add_otlp_port for specific port)
 2. Run your instrumented program: OTEL_EXPORTER_OTLP_ENDPOINT=<endpoint> ./yourapp
 3. create_snapshot before and after key events (e.g., 'before-test', 'after-deploy')
-4. query or get_snapshot_data to analyze what happened between snapshots
+4. query with filters to find specific telemetry (errors_only, min_duration_ns, attributes)
+5. get_snapshot_data to analyze what happened between snapshots
 
 🎯 Use Cases:
+• Find failures: query({errors_only: true})
+• Find slow operations: query({min_duration_ns: 500000000})
+• Find HTTP errors: query({attribute_equals: {"http.status_code": "500"}})
+• Compare before/after: snapshots + get_snapshot_data
 • Observing test runs: see exactly what traces/logs/metrics your tests generated
-• Performance debugging: capture spans and find slow operations
-• Integration testing: verify your app emits correct telemetry
-• CI/CD analysis: compare telemetry before/after deployments
 
 📌 Pro Tip: Use this whenever you see OpenTelemetry, OTLP, tracing, or observability!
 The unified endpoint accepts traces + logs + metrics on a single port.`,

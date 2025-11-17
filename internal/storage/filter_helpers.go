@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"strconv"
 	"strings"
 
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
@@ -110,9 +111,9 @@ func getAttributeStringValue(value *commonpb.AnyValue) string {
 	case *commonpb.AnyValue_StringValue:
 		return v.StringValue
 	case *commonpb.AnyValue_IntValue:
-		return string(rune(v.IntValue))
+		return strconv.FormatInt(v.IntValue, 10)
 	case *commonpb.AnyValue_DoubleValue:
-		return string(rune(int64(v.DoubleValue)))
+		return strconv.FormatFloat(v.DoubleValue, 'f', -1, 64)
 	case *commonpb.AnyValue_BoolValue:
 		if v.BoolValue {
 			return "true"

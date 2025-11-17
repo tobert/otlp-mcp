@@ -9,7 +9,7 @@ import (
 	cliframework "github.com/urfave/cli/v3"
 )
 
-const version = "0.1.0-dev"
+const version = "0.3.0"
 
 func main() {
 	app := &cliframework.Command{

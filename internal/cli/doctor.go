@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -43,10 +44,32 @@ type checkResult struct {
 	IsCritical bool
 }
 
+type fsUtils interface {
+	Executable() (string, error)
+	Stat(name string) (os.FileInfo, error)
+	ReadFile(name string) ([]byte, error)
+	UserHomeDir() (string, error)
+	Getwd() (string, error)
+	LookPath(file string) (string, error)
+}
+
+type realFsUtils struct{}
+
+func (r *realFsUtils) Executable() (string, error) { return os.Executable() }
+func (r *realFsUtils) Stat(name string) (os.FileInfo, error) { return os.Stat(name) }
+func (r *realFsUtils) ReadFile(name string) ([]byte, error) { return os.ReadFile(name) }
+func (r *realFsUtils) UserHomeDir() (string, error) { return os.UserHomeDir() }
+func (r *realFsUtils) Getwd() (string, error) { return os.Getwd() }
+func (r *realFsUtils) LookPath(file string) (string, error) { return exec.LookPath(file) }
+
 func runDoctor(version string) error {
+	return runDoctorWithUtils(version, &realFsUtils{})
+}
+
+func runDoctorWithUtils(version string, utils fsUtils) error {
 	fmt.Printf("🔍 otlp-mcp doctor v%s\n\n", version)
 
-	checks := []func() checkResult{
+	checks := []func(utils fsUtils) checkResult{
 		checkBinaryLocation,
 		checkBinaryExecutable,
 		checkMCPConfig,
@@ -55,7 +78,7 @@ func runDoctor(version string) error {
 
 	results := make([]checkResult, 0, len(checks))
 	for _, check := range checks {
-		result := check()
+		result := check(utils)
 		results = append(results, result)
 		printCheckResult(result)
 	}
@@ -127,8 +150,8 @@ func printSummary(summary resultSummary) {
 }
 
 // Check 1: Binary location
-func checkBinaryLocation() checkResult {
-	executable, err := os.Executable()
+func checkBinaryLocation(utils fsUtils) checkResult {
+	executable, err := utils.Executable()
 	if err != nil {
 		return checkResult{
 			Name:       "binary_location",
@@ -153,8 +176,8 @@ func checkBinaryLocation() checkResult {
 }
 
 // Check 2: Binary executable
-func checkBinaryExecutable() checkResult {
-	executable, err := os.Executable()
+func checkBinaryExecutable(utils fsUtils) checkResult {
+	executable, err := utils.Executable()
 	if err != nil {
 		return checkResult{
 			Name:       "binary_executable",
@@ -164,13 +187,23 @@ func checkBinaryExecutable() checkResult {
 		}
 	}
 
-	info, err := os.Stat(executable)
+	info, err := utils.Stat(executable)
 	if err != nil {
 		return checkResult{
 			Name:       "binary_executable",
 			Status:     "fail",
 			Message:    "Could not stat binary",
 			Suggestion: fmt.Sprintf("Error: %v", err),
+			IsCritical: true,
+		}
+	}
+
+	// Ensure info is not nil before calling Mode()
+	if info == nil {
+		return checkResult{
+			Name:       "binary_executable",
+			Status:     "fail",
+			Message:    "Binary info is nil after stat",
 			IsCritical: true,
 		}
 	}
@@ -195,13 +228,13 @@ func checkBinaryExecutable() checkResult {
 }
 
 // Check 3: MCP configuration
-func checkMCPConfig() checkResult {
-	configPath := getMCPConfigPath()
-	allPaths := getMCPConfigPaths()
+func checkMCPConfig(utils fsUtils) checkResult {
+	configPath := getMCPConfigPath(utils)
+	allPaths := getMCPConfigPaths(utils)
 
 	// Check if file exists
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		executable, _ := os.Executable()
+	if _, err := utils.Stat(configPath); os.IsNotExist(err) {
+		executable, _ := utils.Executable()
 		absPath, _ := filepath.Abs(executable)
 
 		// Build list of possible locations for the suggestion
@@ -235,7 +268,7 @@ func checkMCPConfig() checkResult {
 	}
 
 	// Try to parse the JSON
-	data, err := os.ReadFile(configPath)
+	data, err := utils.ReadFile(configPath)
 	if err != nil {
 		return checkResult{
 			Name:       "mcp_config",
@@ -290,7 +323,7 @@ func checkMCPConfig() checkResult {
 
 	// Check if command path matches current binary
 	configuredCommand, _ := otlpMcp["command"].(string)
-	executable, _ := os.Executable()
+	executable, _ := utils.Executable()
 	absExecutable, _ := filepath.Abs(executable)
 
 	if configuredCommand != "" && configuredCommand != absExecutable {
@@ -313,37 +346,14 @@ func checkMCPConfig() checkResult {
 }
 
 // Check 4: otel-cli availability
-func checkOtelCLI() checkResult {
+func checkOtelCLI(utils fsUtils) checkResult {
 	// Try to find otel-cli in PATH
-	_, err := os.Stat("/usr/local/bin/otel-cli")
+	path, err := utils.LookPath("otel-cli")
 	if err == nil {
 		return checkResult{
 			Name:    "otel_cli",
 			Status:  "pass",
-			Message: "Optional: otel-cli found at /usr/local/bin/otel-cli",
-		}
-	}
-
-	// Check ~/go/bin
-	homeDir, _ := os.UserHomeDir()
-	goPath := filepath.Join(homeDir, "go", "bin", "otel-cli")
-	_, err = os.Stat(goPath)
-	if err == nil {
-		return checkResult{
-			Name:    "otel_cli",
-			Status:  "pass",
-			Message: fmt.Sprintf("Optional: otel-cli found at %s", goPath),
-		}
-	}
-
-	// Check ~/src/otel-cli (user's custom location)
-	srcPath := filepath.Join(homeDir, "src", "otel-cli", "otel-cli")
-	_, err = os.Stat(srcPath)
-	if err == nil {
-		return checkResult{
-			Name:    "otel_cli",
-			Status:  "pass",
-			Message: fmt.Sprintf("Optional: otel-cli found at %s", srcPath),
+			Message: fmt.Sprintf("Optional: otel-cli found at %s", path),
 		}
 	}
 
@@ -358,13 +368,13 @@ func checkOtelCLI() checkResult {
 }
 
 // getMCPConfigPaths returns possible MCP config file paths for various agents
-func getMCPConfigPaths() []string {
-	homeDir, err := os.UserHomeDir()
+func getMCPConfigPaths(utils fsUtils) []string {
+	homeDir, err := utils.UserHomeDir()
 	if err != nil {
 		return nil
 	}
 
-	cwd, _ := os.Getwd()
+	cwd, _ := utils.Getwd()
 
 	var paths []string
 
@@ -394,10 +404,10 @@ func getMCPConfigPaths() []string {
 }
 
 // getMCPConfigPath returns the first existing MCP config file path
-func getMCPConfigPath() string {
-	paths := getMCPConfigPaths()
+func getMCPConfigPath(utils fsUtils) string {
+	paths := getMCPConfigPaths(utils)
 	for _, path := range paths {
-		if _, err := os.Stat(path); err == nil {
+		if _, err := utils.Stat(path); err == nil {
 			return path
 		}
 	}
