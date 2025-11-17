@@ -109,12 +109,14 @@ You're succeeding when:
 
 | Command | Purpose | When to Use |
 |---------|---------|------------|
-| `jj new -m "..."` | Start new work | Beginning tasks |
-| `jj describe` | Update context | When you learn something |
-| `jj log -n 10` | See recent work | Starting sessions |
-| `jj show @` | View current state | Understanding context |
-| `jj obslog -p` | See reasoning evolution | Debugging decisions |
-| `jj git push -c @` | Persist to GitHub | Work complete |
+| `jj new -m '...'` | Start new work | Beginning tasks. **Use single quotes for multi-line messages.** |
+| `jj describe` | Update context/commit message | When you learn something or made a typo. |
+| `jj log -n 10` | See recent work | Starting sessions. |
+| `jj show @` | View changes **in** current commit | "What have I done in this change?" (like `git show HEAD`) |
+| `jj diff` | View uncommitted changes | "What have I done since the last commit?" (like `git diff HEAD`) |
+| `jj abandon @` | **Undo** the last commit | "Oops, that was wrong." Moves changes back to working copy. |
+| `jj obslog -p` | See reasoning evolution | Debugging decisions. |
+| `jj git push -c @` | Persist to GitHub | Work complete. |
 | `mv/rm <path>` | Move/Remove files | `jj` automatically tracks filesystem changes. Use standard shell commands. |
 | `jj file untrack <path>` | Stop tracking a file | Use after `rm` if you don't want the deletion recorded. |
 
@@ -134,6 +136,91 @@ jj descriptions are messages to your future self. Write what you'd need at 3am t
 
 ---
 
+## 🔀 Branch & PR Workflow (Required)
+
+**We ship quality. Use branches and PRs for all changes.**
+
+### The Rules
+1. **Never push directly to main** - Use feature branches
+2. **Create PRs for review** - Even for "simple" fixes
+3. **Test before PR** - Run `go test ./...` locally
+4. **One logical change per PR** - Keep it focused
+
+### The Workflow
+```bash
+# 1. Start feature branch
+jj new main -m "feat: your feature description"
+
+# 2. Work iteratively
+jj describe  # Update as you learn
+
+# 3. Before PR: Test everything
+go test ./...
+./test_config.sh  # If touching config
+
+# 4. Create the PR
+jj git push -c @
+# Note: --fill doesn't work well with jj, use explicit format:
+# Replace <change-id> with your jj change ID (shown after push)
+gh pr create --base main --head push-<change-id> \
+  --title "feat: your title" \
+  --body "## Why
+Reason for change
+
+## Approach
+How you solved it
+
+## Changes
+- List of changes
+
+Co-Authored-By: Claude <claude@anthropic.com>"
+
+# 5. After approval/merge
+jj git fetch
+# Rebase: -d @ (destination: current change) -b main (onto main)
+jj rebase -d @ -b main
+```
+
+### Handling Copilot Reviews
+
+**Copilot automatically reviews PRs. Here's how to handle it:**
+
+1. **Evaluate the feedback** - Is it valid? Actionable? Improving quality?
+2. **Address valid suggestions** - Update your branch with fixes
+3. **Push updates** - `jj git push` to update the PR
+4. **Document the response** - Note in PR what was addressed
+
+**Good Copilot feedback:**
+- Specific locations and issues
+- Constructive suggestions
+- Documentation clarity improvements
+- Security or performance concerns
+
+**When to push back:**
+- Suggestions that break conventions
+- Overly pedantic formatting issues
+- Misunderstanding of domain context
+
+### Attribution Required
+
+**Include Co-Authored-By for ALL agents who contributed** (coding, reviewing, debugging):
+
+```
+feat: implement new feature
+
+Why: [reason]
+Approach: [method]
+Learned: [insight]
+Next: [action]
+
+Co-Authored-By: Claude <claude@anthropic.com>
+Co-Authored-By: Gemini <gemini@google.com>
+```
+
+**Why:** Credit matters. Traceability matters.
+
+---
+
 ## 5. Package Structure
 
 The codebase is organized into focused internal packages:
@@ -150,12 +237,6 @@ otlp-mcp/
 │   └── mcpserver/          # MCP stdio server (7 tools)
 └── test/                   # E2E tests
 ```
-
-**Current Status:**
-- ✅ Unified OTLP receiver (traces, logs, metrics on one port)
-- ✅ MCP server with 7 snapshot-first tools
-- ✅ In-memory ring buffers with predictable capacity
-- ✅ Snapshot-based temporal queries
 
 ## 6. Go Development Commands
 
