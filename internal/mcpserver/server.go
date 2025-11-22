@@ -3,8 +3,10 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/tobert/otlp-mcp/internal/filereader"
 	"github.com/tobert/otlp-mcp/internal/otlpreceiver"
 	"github.com/tobert/otlp-mcp/internal/storage"
 )
@@ -15,11 +17,21 @@ type Server struct {
 	mcpServer    *mcp.Server
 	storage      *storage.ObservabilityStorage
 	otlpReceiver *otlpreceiver.UnifiedServer // OTLP receiver for dynamic port rebinding
+
+	// File sources - directories being watched for OTLP JSONL files
+	fileSourcesMu sync.RWMutex
+	fileSources   map[string]*filereader.FileSource
+	verbose       bool
+}
+
+// ServerOptions configures the MCP server.
+type ServerOptions struct {
+	Verbose bool // Enable verbose logging
 }
 
 // NewServer creates a new MCP server that exposes snapshot-first observability tools.
 // The otlpReceiver provides the OTLP endpoint and enables dynamic port rebinding.
-func NewServer(obsStorage *storage.ObservabilityStorage, otlpReceiver *otlpreceiver.UnifiedServer) (*Server, error) {
+func NewServer(obsStorage *storage.ObservabilityStorage, otlpReceiver *otlpreceiver.UnifiedServer, opts ...ServerOptions) (*Server, error) {
 	if obsStorage == nil {
 		return nil, fmt.Errorf("observability storage cannot be nil")
 	}
@@ -28,9 +40,16 @@ func NewServer(obsStorage *storage.ObservabilityStorage, otlpReceiver *otlprecei
 		return nil, fmt.Errorf("OTLP receiver cannot be nil")
 	}
 
+	var verbose bool
+	if len(opts) > 0 {
+		verbose = opts[0].Verbose
+	}
+
 	s := &Server{
 		storage:      obsStorage,
 		otlpReceiver: otlpReceiver,
+		fileSources:  make(map[string]*filereader.FileSource),
+		verbose:      verbose,
 	}
 
 	// Create MCP server with implementation metadata
@@ -78,5 +97,86 @@ The unified endpoint accepts traces + logs + metrics on a single port.`,
 // This method blocks until the context is cancelled or EOF is received on stdin.
 func (s *Server) Run(ctx context.Context) error {
 	transport := &mcp.StdioTransport{}
-	return s.mcpServer.Run(ctx, transport)
+	err := s.mcpServer.Run(ctx, transport)
+
+	// Stop all file sources on shutdown
+	s.stopAllFileSources()
+
+	return err
+}
+
+// AddFileSource adds a new file source that reads OTLP JSONL from a directory.
+// Returns an error if the directory is already being watched.
+func (s *Server) AddFileSource(ctx context.Context, directory string) error {
+	s.fileSourcesMu.Lock()
+	defer s.fileSourcesMu.Unlock()
+
+	if _, exists := s.fileSources[directory]; exists {
+		return fmt.Errorf("directory %s is already being watched", directory)
+	}
+
+	fs, err := filereader.New(filereader.Config{
+		Directory: directory,
+		Verbose:   s.verbose,
+	}, s.storage)
+	if err != nil {
+		return fmt.Errorf("failed to create file source: %w", err)
+	}
+
+	if err := fs.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start file source: %w", err)
+	}
+
+	s.fileSources[directory] = fs
+	return nil
+}
+
+// RemoveFileSource stops and removes a file source.
+func (s *Server) RemoveFileSource(directory string) error {
+	s.fileSourcesMu.Lock()
+	defer s.fileSourcesMu.Unlock()
+
+	fs, exists := s.fileSources[directory]
+	if !exists {
+		return fmt.Errorf("directory %s is not being watched", directory)
+	}
+
+	fs.Stop()
+	delete(s.fileSources, directory)
+	return nil
+}
+
+// ListFileSources returns all active file source directories.
+func (s *Server) ListFileSources() []string {
+	s.fileSourcesMu.RLock()
+	defer s.fileSourcesMu.RUnlock()
+
+	dirs := make([]string, 0, len(s.fileSources))
+	for dir := range s.fileSources {
+		dirs = append(dirs, dir)
+	}
+	return dirs
+}
+
+// FileSourceStats returns stats for all file sources.
+func (s *Server) FileSourceStats() []filereader.Stats {
+	s.fileSourcesMu.RLock()
+	defer s.fileSourcesMu.RUnlock()
+
+	stats := make([]filereader.Stats, 0, len(s.fileSources))
+	for _, fs := range s.fileSources {
+		stats = append(stats, fs.Stats())
+	}
+	return stats
+}
+
+// stopAllFileSources stops all file sources (called on shutdown).
+func (s *Server) stopAllFileSources() {
+	s.fileSourcesMu.Lock()
+	defer s.fileSourcesMu.Unlock()
+
+	for dir, fs := range s.fileSources {
+		fs.Stop()
+		delete(s.fileSources, dir)
+	}
 }
