@@ -16,7 +16,7 @@ If you're helping a user with OpenTelemetry-instrumented code, this MCP server e
 - User wants to understand what their tests or programs are doing
 - User needs performance analysis or error tracking
 
-**Setup:** Single binary with JSON configuration. See [Quick Start](#quick-start) below.
+**Setup:** Single binary with optional JSON configuration. See [Quick Start](#quick-start) below.
 
 ## What is this?
 
@@ -70,16 +70,16 @@ Agent (stdio) ←→ MCP Server ←→ Ring Buffer ←→ OTLP gRPC Server ←�
 ```
 
 **MVP Scope:**
-- Single binary: `otlp-mcp serve`
+- Single binary: `otlp-mcp` (defaults to serve)
 - OTLP receiver: gRPC on localhost (ephemeral port)
 - MCP server: stdio transport
-- Storage: In-memory ring buffer for traces
+- Storage: In-memory ring buffers (traces, logs, metrics)
 - Localhost only, no authentication needed
 
 ## Prerequisites
 
 - **Go 1.25 or later** - [Download Go](https://go.dev/dl/)
-- **Claude Code** (or another MCP-compatible coding agent)
+- **Claude Code or Gemini CLI** (or another MCP-compatible agent)
 - Optional: **otel-cli** for testing trace ingestion
 
 ## Quick Start
@@ -87,47 +87,166 @@ Agent (stdio) ←→ MCP Server ←→ Ring Buffer ←→ OTLP gRPC Server ←�
 ### 1. Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/tobert/otlp-mcp.git
-cd otlp-mcp
-
-# Build the binary
-go build -o otlp-mcp ./cmd/otlp-mcp
+go install github.com/tobert/otlp-mcp/cmd/otlp-mcp@latest
 ```
 
-### 2. Configure in Claude Code
+The binary will be installed to `$(go env GOPATH)/bin/otlp-mcp`.
 
-Add to your MCP settings file:
+### 2. Configure
 
-**Linux/macOS:** `~/.config/claude-code/mcp_settings.json`
-**Windows:** `%APPDATA%\Claude Code\mcp_settings.json`
+**Claude Code:**
+```bash
+claude mcp add otlp-mcp $(go env GOPATH)/bin/otlp-mcp
+```
 
+**Gemini CLI:**
+```bash
+gemini mcp add otlp-mcp $(go env GOPATH)/bin/otlp-mcp
+```
+
+**Manual (any MCP client):**
 ```json
 {
   "mcpServers": {
     "otlp-mcp": {
-      "command": "/absolute/path/to/otlp-mcp/otlp-mcp",
-      "args": ["serve", "--verbose"]
+      "command": "/home/username/go/bin/otlp-mcp"
     }
   }
 }
 ```
 
-**Important:** Replace `/absolute/path/to/otlp-mcp/otlp-mcp` with the full path to your built binary.
+See [Advanced Configuration](#advanced-configuration) for stable ports, config files, and more options.
 
-**Finding the absolute path:**
-```bash
-cd /path/to/otlp-mcp
-pwd  # Copy this output
-# Example output: /home/username/projects/otlp-mcp
-# Use: /home/username/projects/otlp-mcp/otlp-mcp in the config
+### 3. Verify
+
+Restart your agent, then ask:
+
+```
+What is the OTLP endpoint address?
 ```
 
-**Configuration options:**
-- `--verbose` - Show detailed logging (helpful for troubleshooting)
-- `--otlp-port 4317` - Use a fixed port instead of ephemeral (see below)
+You should get back something like:
+```json
+{
+  "endpoint": "127.0.0.1:54321",
+  "protocol": "grpc"
+}
+```
 
-#### Using a Stable Port for Watch Workflows
+✅ You're ready! See [Workflow Examples](#workflow-examples) to start using it.
+
+## MCP Tools
+
+The server provides 9 snapshot-first tools for temporal observability:
+
+| Tool | Description |
+|------|-------------|
+| `get_otlp_endpoint` | 🚀 **START HERE** - Get the unified OTLP endpoint address. Single port accepts traces, logs, and metrics from any OpenTelemetry-instrumented program |
+| `add_otlp_port` | Add additional listening ports dynamically without restart. Perfect for when Claude Code restarts but your programs are still running on a specific port |
+| `remove_otlp_port` | Remove a listening port gracefully. Cannot remove the last port - at least one must remain active |
+| `create_snapshot` | Bookmark this moment in time across all signals (traces, logs, metrics) - think "Git commit for live telemetry". Essential for temporal analysis |
+| `query` | Search across all OpenTelemetry signals with optional filters. Filter by service, trace ID, severity, or time range. Perfect for ad-hoc exploration |
+| `get_snapshot_data` | Get everything that happened between two snapshots - the foundation of before/after observability analysis |
+| `manage_snapshots` | List/delete/clear snapshots. Surgical cleanup - prefer this over `clear_data` for targeted housekeeping |
+| `get_stats` | Buffer health dashboard - check capacity, current usage, and snapshot count. Use before long-running observations to avoid buffer wraparound |
+| `clear_data` | Nuclear option - wipes ALL telemetry data and snapshots. Use sparingly for complete resets |
+
+## Workflow Examples
+
+### Example 1: Dynamic Port Management for Long-Running Programs
+
+When your agent restarts, it starts a new otlp-mcp server on a different port - but your programs might still be sending to the old port. Use `add_otlp_port` to fix this:
+
+```
+# Your program is running and sending telemetry to port 40187
+You: I restarted my agent but my program is still running. Can you listen on port 40187?
+
+Agent: [uses add_otlp_port(40187)]
+       Added port 40187. Now listening on 2 ports:
+       - 127.0.0.1:35217 (primary)
+       - 127.0.0.1:40187 (your program's port)
+
+You: Show me the latest telemetry
+Agent: [uses query to show recent traces/logs/metrics from your program]
+```
+
+This avoids restarting long-running builds, test watchers, or development servers.
+
+### Example 2: Snapshot-Driven Test Analysis
+
+Using snapshots to compare test runs (perfect for TDD workflows):
+
+```
+You: Create a snapshot called "baseline"
+Agent: [uses create_snapshot tool]
+
+# Run your tests with instrumentation
+You: Run the tests with OTEL_EXPORTER_OTLP_ENDPOINT set
+Agent: [runs tests, they emit traces, logs, and metrics]
+
+You: Create a snapshot called "first-run"
+Agent: [uses create_snapshot tool]
+
+# Make code changes...
+
+You: Run the tests again
+Agent: [runs tests again]
+
+You: Create a snapshot called "after-fix"
+Agent: [uses create_snapshot tool]
+
+You: What changed between "first-run" and "after-fix"?
+Agent: [uses get_snapshot_data to compare]
+       Shows what traces/logs/metrics appeared or changed:
+       - Error logs disappeared (bug fixed)
+       - Trace duration decreased (performance improved)
+       - Metric values changed (behavior modified)
+```
+
+### Example 3: Cargo Watch with Stable Port
+
+Set up continuous test monitoring for Rust projects:
+
+```bash
+# In your Rust project with OpenTelemetry instrumentation
+OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317 cargo watch -x test
+```
+
+Now every test run sends traces, logs, and metrics to the same endpoint:
+
+```
+You: Show me the latest test telemetry
+Agent: [queries recent traces/logs/metrics, shows test execution details]
+
+You: Are there any ERROR logs or slow tests?
+Agent: [analyzes log severity and trace durations, identifies issues]
+
+You: Create a snapshot before I optimize the database tests
+Agent: [creates snapshot]
+
+# You make optimizations...
+
+You: How much faster are the database tests now?
+Agent: [compares current telemetry to snapshot, shows improvements]
+       - Trace duration: 250ms → 45ms (82% faster)
+       - Error logs: 3 → 0 (connection issues fixed)
+```
+
+## Advanced Configuration
+
+### Build from Source
+
+If you prefer to build locally instead of using `go install`:
+
+```bash
+git clone https://github.com/tobert/otlp-mcp.git
+cd otlp-mcp
+go build -o otlp-mcp ./cmd/otlp-mcp
+```
+
+Then configure using the local path instead of `$(go env GOPATH)/bin/otlp-mcp`.
+
+### Using Stable Ports for Watch Workflows
 
 By default, the OTLP server binds to an **ephemeral port** (different each time). For workflows like `cargo watch` where you need a consistent endpoint, you have two options:
 
@@ -142,18 +261,18 @@ Create a `.otlp-mcp.json` file in your project root:
 }
 ```
 
-Now otlp-mcp will automatically use port 4317 when started from this project directory. The configuration file is searched for in the current directory and parent directories up to the repository root.
+Now otlp-mcp will automatically use port 4317 when started from this project directory.
 
 **Option 2: Command-Line Flag**
 
-Specify a fixed port in your MCP settings:
+Add args to your MCP configuration:
 
 ```json
 {
   "mcpServers": {
     "otlp-mcp": {
-      "command": "/absolute/path/to/otlp-mcp/otlp-mcp",
-      "args": ["serve", "--otlp-port", "4317", "--verbose"]
+      "command": "/home/username/go/bin/otlp-mcp",
+      "args": ["--otlp-port", "4317"]
     }
   }
 }
@@ -174,9 +293,9 @@ OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317 npm test -- --watch
 
 **Port 4317** is the standard OTLP/gRPC port, but you can use any available port.
 
-#### Configuration File
+### Configuration Files
 
-otlp-mcp supports JSON configuration files for project-specific settings. This eliminates the need for command-line flags and enables per-project customization.
+otlp-mcp supports JSON configuration files for project-specific settings.
 
 **Configuration File Search Order:**
 1. Explicit path via `--config /path/to/config.json`
@@ -215,125 +334,17 @@ otlp-mcp supports JSON configuration files for project-specific settings. This e
 
 See `.otlp-mcp.json.example` for a complete example.
 
-### 3. Restart Claude Code
+### Command-Line Options
 
-After adding the configuration, restart Claude Code to load the MCP server.
+Available flags when starting otlp-mcp:
 
-### 4. Verify It's Working
-
-In a Claude Code conversation, ask:
-
-```
-What is the OTLP endpoint address?
-```
-
-Claude will use the `get_otlp_endpoint` MCP tool and respond with something like:
-```json
-{
-  "endpoint": "127.0.0.1:54321",
-  "protocol": "grpc"
-}
-```
-
-The MCP server is running and ready to receive telemetry.
-
-## MCP Tools
-
-The server provides 9 snapshot-first tools for temporal observability:
-
-| Tool | Description |
-|------|-------------|
-| `get_otlp_endpoint` | 🚀 **START HERE** - Get the unified OTLP endpoint address. Single port accepts traces, logs, and metrics from any OpenTelemetry-instrumented program |
-| `add_otlp_port` | Add additional listening ports dynamically without restart. Perfect for when Claude Code restarts but your programs are still running on a specific port |
-| `remove_otlp_port` | Remove a listening port gracefully. Cannot remove the last port - at least one must remain active |
-| `create_snapshot` | Bookmark this moment in time across all signals (traces, logs, metrics) - think "Git commit for live telemetry". Essential for temporal analysis |
-| `query` | Search across all OpenTelemetry signals with optional filters. Filter by service, trace ID, severity, or time range. Perfect for ad-hoc exploration |
-| `get_snapshot_data` | Get everything that happened between two snapshots - the foundation of before/after observability analysis |
-| `manage_snapshots` | List/delete/clear snapshots. Surgical cleanup - prefer this over `clear_data` for targeted housekeeping |
-| `get_stats` | Buffer health dashboard - check capacity, current usage, and snapshot count. Use before long-running observations to avoid buffer wraparound |
-| `clear_data` | Nuclear option - wipes ALL telemetry data and snapshots. Use sparingly for complete resets |
-
-## Workflow Examples
-
-### Example 1: Dynamic Port Management for Long-Running Programs
-
-When Claude Code restarts, it starts a new otlp-mcp server on a different port - but your programs might still be sending to the old port. Use `add_otlp_port` to fix this:
-
-```
-# Your program is running and sending telemetry to port 40187
-You: I restarted Claude Code but my program is still running. Can you listen on port 40187?
-
-Claude: [uses add_otlp_port(40187)]
-        Added port 40187. Now listening on 2 ports:
-        - 127.0.0.1:35217 (primary)
-        - 127.0.0.1:40187 (your program's port)
-
-You: Show me the latest telemetry
-Claude: [uses query to show recent traces/logs/metrics from your program]
-```
-
-This avoids restarting long-running builds, test watchers, or development servers.
-
-### Example 2: Snapshot-Driven Test Analysis
-
-Using snapshots to compare test runs (perfect for TDD workflows):
-
-```
-# In Claude Code:
-You: Create a snapshot called "baseline"
-Claude: [uses create_snapshot tool]
-
-# Run your tests with instrumentation
-You: Run the tests with OTEL_EXPORTER_OTLP_ENDPOINT set
-Claude: [runs tests, they emit traces, logs, and metrics]
-
-You: Create a snapshot called "first-run"
-Claude: [uses create_snapshot tool]
-
-# Make code changes...
-
-You: Run the tests again
-Claude: [runs tests again]
-
-You: Create a snapshot called "after-fix"
-Claude: [uses create_snapshot tool]
-
-You: What changed between "first-run" and "after-fix"?
-Claude: [uses get_snapshot_data to compare]
-        Shows what traces/logs/metrics appeared or changed:
-        - Error logs disappeared (bug fixed)
-        - Trace duration decreased (performance improved)
-        - Metric values changed (behavior modified)
-```
-
-### Example 3: Cargo Watch with Stable Port
-
-Set up continuous test monitoring for Rust projects:
-
-```bash
-# In your Rust project with OpenTelemetry instrumentation
-OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317 cargo watch -x test
-```
-
-Now every test run sends traces, logs, and metrics to the same endpoint. In Claude Code:
-
-```
-You: Show me the latest test telemetry
-Claude: [queries recent traces/logs/metrics, shows test execution details]
-
-You: Are there any ERROR logs or slow tests?
-Claude: [analyzes log severity and trace durations, identifies issues]
-
-You: Create a snapshot before I optimize the database tests
-Claude: [creates snapshot]
-
-# You make optimizations...
-
-You: How much faster are the database tests now?
-Claude: [compares current telemetry to snapshot, shows improvements]
-        - Trace duration: 250ms → 45ms (82% faster)
-        - Error logs: 3 → 0 (connection issues fixed)
-```
+- `--verbose` - Show detailed logging
+- `--otlp-port <port>` - OTLP server port (0 for ephemeral, default from config)
+- `--otlp-host <host>` - OTLP server bind address (default: 127.0.0.1)
+- `--config <path>` - Explicit path to config file
+- `--trace-buffer-size <n>` - Number of spans to buffer
+- `--log-buffer-size <n>` - Number of log records to buffer
+- `--metric-buffer-size <n>` - Number of metric points to buffer
 
 ## Demo: Send Test Traces
 
@@ -357,7 +368,7 @@ go build -o otel-cli
 
 ### Run the Demo
 
-**Step 1:** In Claude Code, ask for the endpoint:
+**Step 1:** Ask your agent for the endpoint:
 ```
 What is the OTLP endpoint address?
 ```
@@ -398,12 +409,12 @@ otel-cli span \
   --attrs "cache.key=user:123,cache.hit=true"
 ```
 
-**Step 3:** In Claude Code, ask to see the traces:
+**Step 3:** Ask your agent to show the traces:
 ```
 Show me the recent traces
 ```
 
-Claude will use the MCP tools to retrieve and analyze the traces, showing you service names, span names, attributes, and more!
+Your agent will use the MCP tools to retrieve and analyze the traces, showing you service names, span names, attributes, and more!
 
 **Step 4:** Try filtering:
 ```
@@ -424,7 +435,7 @@ A `demo.sh` script is included in the repository for quick testing. It automatic
 📡 Sending traces to 127.0.0.1:38279
    Using: /home/you/go/bin/otel-cli
 ✅ Sent 3 test traces!
-💡 In Claude Code, ask: 'Show me recent traces'
+💡 Ask your agent: 'Show me recent traces'
 ```
 
 The script will automatically:
@@ -445,26 +456,29 @@ Then make sure /home/you/go/bin is in your PATH:
 
 ## Troubleshooting
 
-### MCP server not showing up in Claude Code
+### MCP server not showing up
 
 1. **Check the config file location:**
-   - Linux/macOS: `~/.config/claude-code/mcp_settings.json`
-   - Windows: `%APPDATA%\Claude Code\mcp_settings.json`
+   - Claude Code - Linux/macOS: `~/.config/claude-code/mcp_settings.json`
+   - Claude Code - Windows: `%APPDATA%\Claude Code\mcp_settings.json`
+   - Gemini CLI: Use `gemini mcp list` to verify
 
-2. **Verify the binary path is absolute:**
+2. **Verify the binary path is correct:**
    ```bash
-   # Get the absolute path
-   cd /path/to/otlp-mcp
-   pwd
-   # Use this full path in mcp_settings.json
+   # Check where go install put it
+   go env GOPATH
+   # Binary should be at $(go env GOPATH)/bin/otlp-mcp
+
+   # Or find your local build
+   which otlp-mcp
    ```
 
 3. **Check the binary is executable:**
    ```bash
-   chmod +x /path/to/otlp-mcp/otlp-mcp
+   chmod +x $(go env GOPATH)/bin/otlp-mcp
    ```
 
-4. **Restart Claude Code completely** - close all windows and restart
+4. **Restart your agent completely** - close all windows and restart
 
 ### otel-cli not found
 
@@ -484,16 +498,16 @@ go env GOPATH
 ### No traces showing up
 
 1. **Get the endpoint first:**
-   - Ask Claude: "What is the OTLP endpoint address?"
+   - Ask your agent: "What is the OTLP endpoint address?"
    - Make sure you use the exact endpoint returned
 
 2. **Check the server is running:**
-   - The MCP server starts automatically when Claude Code starts
+   - The MCP server starts automatically when your agent starts
    - Look for `otlp-mcp` process: `ps aux | grep otlp-mcp`
 
 3. **Verify traces were sent:**
    - `otel-cli` should output a trace ID if successful
-   - Ask Claude: "What are the buffer statistics?" to see span count
+   - Ask your agent: "What are the buffer statistics?" to see span count
 
 ### Connection refused errors
 
@@ -522,7 +536,7 @@ go env GOPATH
 
 ### Dynamic Port Management
 - If user's program is already running on a specific port, use `add_otlp_port(port)` to listen there
-- This avoids restarting long-running programs when Claude Code restarts
+- This avoids restarting long-running programs when the agent restarts
 - Example: `add_otlp_port(40187)` if their program expects port 40187
 
 ### Analyzing Telemetry

@@ -55,9 +55,8 @@ data via MCP tools.`,
 				Value: -1, // -1 means not set
 			},
 			&cli.BoolFlag{
-				Name:    "verbose",
-				Aliases: []string{"v"},
-				Usage:   "Enable verbose logging (overrides config file)",
+				Name:  "verbose",
+				Usage: "Enable verbose logging (overrides config file)",
 			},
 		},
 		Action: runServe,

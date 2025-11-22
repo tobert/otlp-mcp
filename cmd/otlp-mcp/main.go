@@ -12,12 +12,17 @@ import (
 const version = "0.3.0"
 
 func main() {
+	serveCmd := cli.ServeCommand()
+
 	app := &cliframework.Command{
 		Name:    "otlp-mcp",
 		Usage:   "OTLP MCP server for AI agent observability",
 		Version: version,
+		// Default to serve when no subcommand provided
+		Action: serveCmd.Action,
+		Flags:  serveCmd.Flags,
 		Commands: []*cliframework.Command{
-			cli.ServeCommand(),
+			serveCmd,
 			cli.DoctorCommand(version),
 		},
 	}
