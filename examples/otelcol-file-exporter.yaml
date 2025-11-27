@@ -1,0 +1,68 @@
+# Example OpenTelemetry Collector configuration for file export
+#
+# This config receives OTLP telemetry and writes it to JSONL files that
+# otlp-mcp can read via the set_file_source MCP tool or --file-source flag.
+#
+# Install: Copy to /etc/otelcol/config.yaml (or use --config flag)
+# Usage:   systemctl start otelcol
+#          otlp-mcp --file-source /var/lib/otel
+#
+# The collector listens on standard OTLP ports:
+#   - gRPC: localhost:4317
+#   - HTTP: localhost:4318
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 127.0.0.1:4317
+      http:
+        endpoint: 127.0.0.1:4318
+
+processors:
+  batch:
+    send_batch_size: 1000
+    timeout: 2s
+
+exporters:
+  # File exporter for traces
+  file/traces:
+    path: /var/lib/otel/traces/traces.jsonl
+    rotation:
+      max_megabytes: 100
+      max_days: 30
+      max_backups: 50
+    format: json
+
+  # File exporter for logs
+  file/logs:
+    path: /var/lib/otel/logs/logs.jsonl
+    rotation:
+      max_megabytes: 100
+      max_days: 30
+      max_backups: 50
+    format: json
+
+  # File exporter for metrics
+  file/metrics:
+    path: /var/lib/otel/metrics/metrics.jsonl
+    rotation:
+      max_megabytes: 100
+      max_days: 30
+      max_backups: 50
+    format: json
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file/traces]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file/logs]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file/metrics]

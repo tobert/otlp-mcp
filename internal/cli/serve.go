@@ -58,6 +58,11 @@ data via MCP tools.`,
 				Name:  "verbose",
 				Usage: "Enable verbose logging (overrides config file)",
 			},
+			&cli.StringSliceFlag{
+				Name:    "file-source",
+				Aliases: []string{"f"},
+				Usage:   "Directory to load OTLP JSONL files from (can be specified multiple times)",
+			},
 		},
 		Action: runServe,
 	}
@@ -162,13 +167,15 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 	}
 
 	// 3. Create MCP server with unified storage and receiver
-	mcpServer, err := mcpserver.NewServer(obsStorage, otlpServer)
+	mcpServer, err := mcpserver.NewServer(obsStorage, otlpServer, mcpserver.ServerOptions{
+		Verbose: cfg.Verbose,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}
 
 	if cfg.Verbose {
-		log.Println("✅ MCP server created with 9 snapshot-first tools:")
+		log.Println("✅ MCP server created with 12 snapshot-first tools:")
 		log.Println("   - get_otlp_endpoint (get primary endpoint)")
 		log.Println("   - add_otlp_port (add listening ports on-demand)")
 		log.Println("   - remove_otlp_port (remove ports when done)")
@@ -178,9 +185,22 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 		log.Println("   - manage_snapshots (list/delete/clear)")
 		log.Println("   - get_stats (buffer health dashboard)")
 		log.Println("   - clear_data (nuclear reset)")
+		log.Println("   - set_file_source (load from filesystem)")
+		log.Println("   - remove_file_source (stop watching)")
+		log.Println("   - list_file_sources (show active sources)")
 	}
 
-	// 4. Setup graceful shutdown on SIGINT/SIGTERM
+	// 4. Load file sources from CLI flags
+	fileSources := cmd.StringSlice("file-source")
+	for _, dir := range fileSources {
+		if err := mcpServer.AddFileSource(ctx, dir); err != nil {
+			log.Printf("⚠️  Failed to load file source %s: %v\n", dir, err)
+		} else {
+			log.Printf("📁 Loaded file source: %s\n", dir)
+		}
+	}
+
+	// 5. Setup graceful shutdown on SIGINT/SIGTERM
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -193,7 +213,7 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 		otlpServer.Stop()
 	}()
 
-	// 5. Run MCP server on stdio (blocks until stdin closes or context cancelled)
+	// 6. Run MCP server on stdio (blocks until stdin closes or context cancelled)
 	log.Println("🎯 MCP server ready on stdio")
 	log.Println("💡 Use MCP tools to query traces and get the OTLP endpoint")
 	log.Println("💡 If programs need a specific port, use add_otlp_port to listen on it")

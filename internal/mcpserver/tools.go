@@ -505,6 +505,133 @@ func (s *Server) handleClearData(
 	}, nil
 }
 
+// Tool 10: set_file_source
+
+type SetFileSourceInput struct {
+	Directory string `json:"directory" jsonschema:"Path to directory containing OTLP JSONL files (e.g., /tank/otel). Must have traces/, logs/, and/or metrics/ subdirectories."`
+}
+
+type SetFileSourceOutput struct {
+	Directory   string   `json:"directory" jsonschema:"Directory being watched"`
+	WatchedDirs []string `json:"watched_dirs" jsonschema:"Subdirectories being watched (traces, logs, metrics)"`
+	Success     bool     `json:"success" jsonschema:"Whether setup succeeded"`
+	Message     string   `json:"message,omitempty" jsonschema:"Additional information"`
+}
+
+func (s *Server) handleSetFileSource(
+	ctx context.Context,
+	req *mcp.CallToolRequest,
+	input SetFileSourceInput,
+) (*mcp.CallToolResult, SetFileSourceOutput, error) {
+	if input.Directory == "" {
+		return &mcp.CallToolResult{}, SetFileSourceOutput{
+			Success: false,
+			Message: "directory is required",
+		}, nil
+	}
+
+	if err := s.AddFileSource(ctx, input.Directory); err != nil {
+		return &mcp.CallToolResult{}, SetFileSourceOutput{
+			Directory: input.Directory,
+			Success:   false,
+			Message:   err.Error(),
+		}, nil
+	}
+
+	// Get stats for the newly added source
+	stats := s.FileSourceStats()
+	var watchedDirs []string
+	for _, stat := range stats {
+		if stat.Directory == input.Directory {
+			watchedDirs = stat.WatchedDirs
+			break
+		}
+	}
+
+	return &mcp.CallToolResult{}, SetFileSourceOutput{
+		Directory:   input.Directory,
+		WatchedDirs: watchedDirs,
+		Success:     true,
+		Message:     fmt.Sprintf("Now watching %s for OTLP JSONL files. Data loaded into ring buffers.", input.Directory),
+	}, nil
+}
+
+// Tool 11: remove_file_source
+
+type RemoveFileSourceInput struct {
+	Directory string `json:"directory" jsonschema:"Directory to stop watching"`
+}
+
+type RemoveFileSourceOutput struct {
+	Directory string `json:"directory" jsonschema:"Directory that was removed"`
+	Success   bool   `json:"success" jsonschema:"Whether removal succeeded"`
+	Message   string `json:"message,omitempty" jsonschema:"Additional information"`
+}
+
+func (s *Server) handleRemoveFileSource(
+	ctx context.Context,
+	req *mcp.CallToolRequest,
+	input RemoveFileSourceInput,
+) (*mcp.CallToolResult, RemoveFileSourceOutput, error) {
+	if input.Directory == "" {
+		return &mcp.CallToolResult{}, RemoveFileSourceOutput{
+			Success: false,
+			Message: "directory is required",
+		}, nil
+	}
+
+	if err := s.RemoveFileSource(input.Directory); err != nil {
+		return &mcp.CallToolResult{}, RemoveFileSourceOutput{
+			Directory: input.Directory,
+			Success:   false,
+			Message:   err.Error(),
+		}, nil
+	}
+
+	return &mcp.CallToolResult{}, RemoveFileSourceOutput{
+		Directory: input.Directory,
+		Success:   true,
+		Message:   fmt.Sprintf("Stopped watching %s. Previously loaded data remains in buffers.", input.Directory),
+	}, nil
+}
+
+// Tool 12: list_file_sources
+
+type ListFileSourcesInput struct{}
+
+type FileSourceInfo struct {
+	Directory    string   `json:"directory" jsonschema:"Directory path"`
+	WatchedDirs  []string `json:"watched_dirs" jsonschema:"Subdirectories being watched"`
+	FilesTracked int      `json:"files_tracked" jsonschema:"Number of files being tracked"`
+}
+
+type ListFileSourcesOutput struct {
+	Sources []FileSourceInfo `json:"sources" jsonschema:"Active file sources"`
+	Count   int              `json:"count" jsonschema:"Number of active file sources"`
+}
+
+func (s *Server) handleListFileSources(
+	ctx context.Context,
+	req *mcp.CallToolRequest,
+	input ListFileSourcesInput,
+) (*mcp.CallToolResult, ListFileSourcesOutput, error) {
+	stats := s.FileSourceStats()
+
+	sources := make([]FileSourceInfo, len(stats))
+	for i, stat := range stats {
+		sources[i] = FileSourceInfo{
+			Directory:    stat.Directory,
+			WatchedDirs:  stat.WatchedDirs,
+			FilesTracked: stat.FilesTracked,
+		}
+	}
+
+	return &mcp.CallToolResult{}, ListFileSourcesOutput{
+		Sources: sources,
+		Count:   len(sources),
+	}, nil
+}
+
 // Register all tools
 
 func (s *Server) registerTools() error {
@@ -552,6 +679,21 @@ func (s *Server) registerTools() error {
 		Name:        "clear_data",
 		Description: "Nuclear option - wipes ALL telemetry data and snapshots. Use sparingly, only for complete resets. For normal cleanup, delete individual snapshots with manage_snapshots instead - it's surgical vs. scorched earth.",
 	}, s.handleClearData)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "set_file_source",
+		Description: "📁 Load OTLP telemetry from filesystem. Point this at a directory where OpenTelemetry Collector's file exporter writes JSONL files (e.g., /tank/otel). The directory should contain traces/, logs/, and/or metrics/ subdirectories. Data is loaded into ring buffers and the directory is watched for new files. Perfect for analyzing historical telemetry or when the collector is already writing to disk.",
+	}, s.handleSetFileSource)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "remove_file_source",
+		Description: "Stop watching a filesystem directory for OTLP data. Previously loaded data remains in the ring buffers.",
+	}, s.handleRemoveFileSource)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "list_file_sources",
+		Description: "List all directories currently being watched for OTLP JSONL files. Shows which subdirectories are being watched and how many files are tracked.",
+	}, s.handleListFileSources)
 
 	return nil
 }
