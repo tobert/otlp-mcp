@@ -105,6 +105,18 @@ func (s *Server) Run(ctx context.Context) error {
 	return err
 }
 
+// MCPServer returns the underlying mcp.Server for use with alternative transports.
+// This enables the server to be used with StreamableHTTPHandler for HTTP transport.
+func (s *Server) MCPServer() *mcp.Server {
+	return s.mcpServer
+}
+
+// Shutdown performs cleanup when using non-stdio transports.
+// For stdio transport, this cleanup is handled by Run() automatically.
+func (s *Server) Shutdown() {
+	s.stopAllFileSources()
+}
+
 // AddFileSource adds a new file source that reads OTLP JSONL from a directory.
 // Returns an error if the directory is already being watched.
 func (s *Server) AddFileSource(ctx context.Context, directory string) error {
