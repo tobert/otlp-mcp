@@ -42,9 +42,10 @@ type StorageReceiver interface {
 // FileSource reads OTLP telemetry from a directory of JSONL files.
 // It watches for new data and feeds it into the storage ring buffers.
 type FileSource struct {
-	directory string
-	storage   StorageReceiver
-	verbose   bool
+	directory  string
+	storage    StorageReceiver
+	verbose    bool
+	activeOnly bool // Only load active files, skip rotated archives
 
 	watcher *fsnotify.Watcher
 
@@ -63,8 +64,13 @@ type Config struct {
 	Directory string // Base directory (e.g., /tank/otel)
 	Verbose   bool   // Enable verbose logging
 
+	// ActiveOnly when true (default) only loads active files like traces.jsonl,
+	// skipping rotated archives like traces-2025-12-09T13-10-56.jsonl.
+	// This prevents loading gigabytes of historical data on startup.
+	ActiveOnly bool
+
 	// Optional: time cutoff - only load data newer than this
-	// Zero value means load everything
+	// Zero value means load everything (future feature)
 	SinceTime time.Time
 }
 
@@ -96,6 +102,7 @@ func New(cfg Config, storage StorageReceiver) (*FileSource, error) {
 		directory:   cfg.Directory,
 		storage:     storage,
 		verbose:     cfg.Verbose,
+		activeOnly:  cfg.ActiveOnly,
 		watcher:     watcher,
 		fileOffsets: make(map[string]int64),
 		ctx:         ctx,
@@ -183,12 +190,19 @@ func (fs *FileSource) loadInitialData(ctx context.Context) error {
 	return nil
 }
 
-// findJSONLFiles returns all .jsonl files in a directory, sorted by modification time.
+// findJSONLFiles returns .jsonl files in a directory, sorted by modification time.
+// When activeOnly is true, only returns active files (e.g., traces.jsonl) and
+// skips rotated archives (e.g., traces-2025-12-09T13-10-56.jsonl).
 func (fs *FileSource) findJSONLFiles(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
+
+	// Determine the expected active filename from the directory name
+	// e.g., /tank/otel/traces -> traces.jsonl
+	signal := filepath.Base(dir)
+	activeFileName := signal + ".jsonl"
 
 	type fileInfo struct {
 		path    string
@@ -201,14 +215,26 @@ func (fs *FileSource) findJSONLFiles(dir string) ([]string, error) {
 			continue
 		}
 		name := entry.Name()
-		if strings.HasSuffix(name, ".jsonl") || strings.Contains(name, ".jsonl.") {
-			path := filepath.Join(dir, name)
-			info, err := entry.Info()
-			if err != nil {
-				continue
-			}
-			files = append(files, fileInfo{path: path, modTime: info.ModTime()})
+		if !strings.HasSuffix(name, ".jsonl") && !strings.Contains(name, ".jsonl.") {
+			continue
 		}
+
+		// When activeOnly, skip archived/rotated files
+		// Active files: traces.jsonl, logs.jsonl, metrics.jsonl
+		// Archived files: traces-2025-12-09T13-10-56.jsonl (contain hyphen after signal name)
+		if fs.activeOnly && name != activeFileName {
+			if fs.verbose {
+				log.Printf("📁 FileSource: skipping archived file %s (activeOnly mode)\n", name)
+			}
+			continue
+		}
+
+		path := filepath.Join(dir, name)
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, fileInfo{path: path, modTime: info.ModTime()})
 	}
 
 	// Sort by modification time (oldest first) so we load data in chronological order

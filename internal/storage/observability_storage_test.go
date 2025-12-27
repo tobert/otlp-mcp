@@ -151,17 +151,17 @@ func TestObservabilityStorage_Query(t *testing.T) {
 	trace1HexID := fmt.Sprintf("%x", []byte("trace1"))
 
 	tests := []struct {
-		name           string
-		filter         QueryFilter
-		expectedTraces int
-		expectedLogs   int
+		name            string
+		filter          QueryFilter
+		expectedTraces  int
+		expectedLogs    int
 		expectedMetrics int
 	}{
 		{
-			name:           "no filter returns all",
-			filter:         QueryFilter{},
-			expectedTraces: 2,
-			expectedLogs:   3,
+			name:            "no filter returns all",
+			filter:          QueryFilter{},
+			expectedTraces:  2,
+			expectedLogs:    3,
 			expectedMetrics: 2,
 		},
 		{
@@ -169,8 +169,8 @@ func TestObservabilityStorage_Query(t *testing.T) {
 			filter: QueryFilter{
 				ServiceName: "service1",
 			},
-			expectedTraces: 1,
-			expectedLogs:   3,
+			expectedTraces:  1,
+			expectedLogs:    3,
 			expectedMetrics: 1,
 		},
 		{
@@ -178,8 +178,8 @@ func TestObservabilityStorage_Query(t *testing.T) {
 			filter: QueryFilter{
 				TraceID: trace1HexID,
 			},
-			expectedTraces: 1,
-			expectedLogs:   1, // One log has trace1
+			expectedTraces:  1,
+			expectedLogs:    1, // One log has trace1
 			expectedMetrics: 0, // Metrics don't have trace IDs
 		},
 		{
@@ -187,8 +187,8 @@ func TestObservabilityStorage_Query(t *testing.T) {
 			filter: QueryFilter{
 				LogSeverity: "ERROR",
 			},
-			expectedTraces: 2,
-			expectedLogs:   1,
+			expectedTraces:  2,
+			expectedLogs:    1,
 			expectedMetrics: 2,
 		},
 		{
@@ -196,8 +196,8 @@ func TestObservabilityStorage_Query(t *testing.T) {
 			filter: QueryFilter{
 				MetricNames: []string{"cpu.usage"},
 			},
-			expectedTraces: 2,
-			expectedLogs:   3,
+			expectedTraces:  2,
+			expectedLogs:    3,
 			expectedMetrics: 1,
 		},
 		{
@@ -205,8 +205,8 @@ func TestObservabilityStorage_Query(t *testing.T) {
 			filter: QueryFilter{
 				Limit: 1,
 			},
-			expectedTraces: 1,
-			expectedLogs:   1,
+			expectedTraces:  1,
+			expectedLogs:    1,
 			expectedMetrics: 1,
 		},
 	}

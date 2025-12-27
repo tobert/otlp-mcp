@@ -2,12 +2,12 @@ package storage
 
 // FilterOptions contains options for filtering telemetry data.
 type FilterOptions struct {
-	TraceID   string
-	Service   string
-	SpanName  string
-	Severity  string
-	MinTime   int64
-	MaxTime   int64
+	TraceID  string
+	Service  string
+	SpanName string
+	Severity string
+	MinTime  int64
+	MaxTime  int64
 }
 
 // FilterSpansByTraceID returns spans matching the specified trace ID.
