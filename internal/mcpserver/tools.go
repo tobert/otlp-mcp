@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	"github.com/tobert/otlp-mcp/internal/storage"
+	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -32,9 +32,9 @@ import (
 type GetOTLPEndpointInput struct{}
 
 type GetOTLPEndpointOutput struct {
-	Endpoint         string            `json:"endpoint" jsonschema:"OTLP gRPC endpoint address (accepts traces, logs, and metrics)"`
-	Protocol         string            `json:"protocol" jsonschema:"Protocol type (grpc)"`
-	EnvironmentVars  map[string]string `json:"environment_vars" jsonschema:"Suggested environment variables for configuring applications"`
+	Endpoint        string            `json:"endpoint" jsonschema:"OTLP gRPC endpoint address (accepts traces, logs, and metrics)"`
+	Protocol        string            `json:"protocol" jsonschema:"Protocol type (grpc)"`
+	EnvironmentVars map[string]string `json:"environment_vars" jsonschema:"Suggested environment variables for configuring applications"`
 }
 
 func (s *Server) handleGetOTLPEndpoint(
@@ -145,7 +145,7 @@ type CreateSnapshotInput struct {
 	Name string `json:"name" jsonschema:"Snapshot name (e.g. 'before-deploy', 'test-start')"`
 }
 
-type CreateSnapshotOutput struct{
+type CreateSnapshotOutput struct {
 	Name      string `json:"name" jsonschema:"Snapshot name"`
 	TracePos  int    `json:"trace_position" jsonschema:"Current trace buffer position"`
 	LogPos    int    `json:"log_position" jsonschema:"Current log buffer position"`
@@ -204,7 +204,7 @@ type QueryInput struct {
 	MaxDurationNs *uint64 `json:"max_duration_ns,omitempty" jsonschema:"Maximum span duration in nanoseconds"`
 
 	// Attribute filters (NEW)
-	HasAttribute   string            `json:"has_attribute,omitempty" jsonschema:"Filter spans/logs that have this attribute key (e.g., 'http.status_code')"`
+	HasAttribute    string            `json:"has_attribute,omitempty" jsonschema:"Filter spans/logs that have this attribute key (e.g., 'http.status_code')"`
 	AttributeEquals map[string]string `json:"attribute_equals,omitempty" jsonschema:"Filter by attribute key-value pairs (e.g., {'http.status_code': '500'})"`
 }
 
@@ -216,11 +216,11 @@ type QueryOutput struct {
 }
 
 type QuerySummary struct {
-	TraceCount   int      `json:"trace_count" jsonschema:"Number of spans returned"`
-	LogCount     int      `json:"log_count" jsonschema:"Number of logs returned"`
-	MetricCount  int      `json:"metric_count" jsonschema:"Number of metrics returned"`
-	Services     []string `json:"services" jsonschema:"Distinct services in results"`
-	TraceIDs     []string `json:"trace_ids" jsonschema:"Distinct trace IDs in results"`
+	TraceCount  int      `json:"trace_count" jsonschema:"Number of spans returned"`
+	LogCount    int      `json:"log_count" jsonschema:"Number of logs returned"`
+	MetricCount int      `json:"metric_count" jsonschema:"Number of metrics returned"`
+	Services    []string `json:"services" jsonschema:"Distinct services in results"`
+	TraceIDs    []string `json:"trace_ids" jsonschema:"Distinct trace IDs in results"`
 }
 
 func (s *Server) handleQuery(
@@ -240,12 +240,12 @@ func (s *Server) handleQuery(
 		Limit:         input.Limit,
 
 		// New filters
-		ErrorsOnly:       input.ErrorsOnly,
-		SpanStatus:       input.SpanStatus,
-		MinDurationNs:    input.MinDurationNs,
-		MaxDurationNs:    input.MaxDurationNs,
-		HasAttribute:     input.HasAttribute,
-		AttributeEquals:  input.AttributeEquals,
+		ErrorsOnly:      input.ErrorsOnly,
+		SpanStatus:      input.SpanStatus,
+		MinDurationNs:   input.MinDurationNs,
+		MaxDurationNs:   input.MaxDurationNs,
+		HasAttribute:    input.HasAttribute,
+		AttributeEquals: input.AttributeEquals,
 	}
 
 	result, err := s.storage.Query(filter)
@@ -307,13 +307,13 @@ type TimeRange struct {
 }
 
 type DataSummary struct {
-	TraceCount   int              `json:"trace_count" jsonschema:"Number of spans"`
-	LogCount     int              `json:"log_count" jsonschema:"Number of logs"`
-	MetricCount  int              `json:"metric_count" jsonschema:"Number of metrics"`
-	Services     []string         `json:"services" jsonschema:"Distinct services"`
-	TraceIDs     []string         `json:"trace_ids" jsonschema:"Distinct trace IDs"`
-	LogSeverities map[string]int  `json:"log_severities" jsonschema:"Log severity counts"`
-	MetricNames  []string         `json:"metric_names" jsonschema:"Distinct metric names"`
+	TraceCount    int            `json:"trace_count" jsonschema:"Number of spans"`
+	LogCount      int            `json:"log_count" jsonschema:"Number of logs"`
+	MetricCount   int            `json:"metric_count" jsonschema:"Number of metrics"`
+	Services      []string       `json:"services" jsonschema:"Distinct services"`
+	TraceIDs      []string       `json:"trace_ids" jsonschema:"Distinct trace IDs"`
+	LogSeverities map[string]int `json:"log_severities" jsonschema:"Log severity counts"`
+	MetricNames   []string       `json:"metric_names" jsonschema:"Distinct metric names"`
 }
 
 func (s *Server) handleGetSnapshotData(
@@ -509,6 +509,10 @@ func (s *Server) handleClearData(
 
 type SetFileSourceInput struct {
 	Directory string `json:"directory" jsonschema:"Path to directory containing OTLP JSONL files (e.g., /tank/otel). Must have traces/, logs/, and/or metrics/ subdirectories."`
+	// ActiveOnly when true (default) only loads active files like traces.jsonl,
+	// skipping rotated archives like traces-2025-12-09T13-10-56.jsonl.
+	// Set to false to load all files including archives.
+	ActiveOnly *bool `json:"active_only,omitempty" jsonschema:"Only load active files, skip rotated archives (default: true)"`
 }
 
 type SetFileSourceOutput struct {
@@ -530,7 +534,13 @@ func (s *Server) handleSetFileSource(
 		}, nil
 	}
 
-	if err := s.AddFileSource(ctx, input.Directory); err != nil {
+	// Default activeOnly to true if not specified
+	activeOnly := true
+	if input.ActiveOnly != nil {
+		activeOnly = *input.ActiveOnly
+	}
+
+	if err := s.AddFileSource(ctx, input.Directory, activeOnly); err != nil {
 		return &mcp.CallToolResult{}, SetFileSourceOutput{
 			Directory: input.Directory,
 			Success:   false,
@@ -725,10 +735,10 @@ type LogSummary struct {
 }
 
 type MetricSummary struct {
-	MetricName  string  `json:"metric_name" jsonschema:"Metric name"`
-	ServiceName string  `json:"service_name" jsonschema:"Service name"`
-	MetricType  string  `json:"metric_type" jsonschema:"Metric type (Gauge, Sum, Histogram, etc)"`
-	Timestamp   uint64  `json:"timestamp_unix_nano" jsonschema:"Timestamp (Unix nanoseconds)"`
+	MetricName  string   `json:"metric_name" jsonschema:"Metric name"`
+	ServiceName string   `json:"service_name" jsonschema:"Service name"`
+	MetricType  string   `json:"metric_type" jsonschema:"Metric type (Gauge, Sum, Histogram, etc)"`
+	Timestamp   uint64   `json:"timestamp_unix_nano" jsonschema:"Timestamp (Unix nanoseconds)"`
 	Value       *float64 `json:"value,omitempty" jsonschema:"Numeric value (for Gauge/Sum)"`
 	Count       *uint64  `json:"count,omitempty" jsonschema:"Count (for Histogram)"`
 	Sum         *float64 `json:"sum,omitempty" jsonschema:"Sum (for Histogram)"`

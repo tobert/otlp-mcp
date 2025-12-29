@@ -18,6 +18,18 @@ If you're helping a user with OpenTelemetry-instrumented code, this MCP server e
 
 **Setup:** Single binary with optional JSON configuration. See [Quick Start](#quick-start) below.
 
+## ⚠️ Security Warning
+
+**This tool is designed for local development only.**
+
+- **Bind to localhost (127.0.0.1)** - Never expose to public networks
+- **No authentication** - Anyone who can reach the endpoint can read/write telemetry
+- **No encryption** - Traffic is not encrypted by default
+- **Telemetry contains sensitive data** - Traces may include database queries, API calls, credentials, and other sensitive information
+- **CORS allows localhost wildcard** - Default config allows `http://localhost:*` and `http://127.0.0.1:*` (any port on localhost)
+
+**Do not run on untrusted networks or expose to the internet.** If you need remote access, use SSH tunneling, a VPN, or a properly secured reverse proxy with authentication.
+
 ## What is this?
 
 `otlp-mcp` is an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that captures [OpenTelemetry](https://opentelemetry.io/) telemetry (traces, logs, metrics) from programs and exposes it to coding agents. It bridges the observability gap: agents can see what happens when they run programs, just like developers use distributed tracing to debug production systems.

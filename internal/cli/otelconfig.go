@@ -21,8 +21,16 @@ type FileExporter struct {
 }
 
 // ParseOtelConfig reads an OpenTelemetry Collector config file and extracts
-// directories from file exporter paths. It looks for exporters with names
-// starting with "file/" and returns the parent directories of their paths.
+// base directories from file exporter paths. It looks for exporters with names
+// starting with "file/" and returns the base directory (parent of signal directories).
+//
+// For example, if the config has:
+//
+//	file/traces:
+//	  path: /tank/otel/traces/traces.jsonl
+//
+// This returns ["/tank/otel"] because FileSource expects the base directory
+// and internally looks for traces/, logs/, metrics/ subdirectories.
 func ParseOtelConfig(configPath string) ([]string, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -34,12 +42,15 @@ func ParseOtelConfig(configPath string) ([]string, error) {
 		return nil, fmt.Errorf("failed to parse otel config: %w", err)
 	}
 
-	// Collect unique directories from file exporters
+	// Collect unique base directories from file exporters
+	// Path structure: /base/signal/file.jsonl (e.g., /tank/otel/traces/traces.jsonl)
+	// We need: /base (e.g., /tank/otel)
 	dirSet := make(map[string]struct{})
 	for name, exporter := range config.Exporters {
 		if strings.HasPrefix(name, "file/") && exporter.Path != "" {
-			dir := filepath.Dir(exporter.Path)
-			dirSet[dir] = struct{}{}
+			signalDir := filepath.Dir(exporter.Path) // /tank/otel/traces
+			baseDir := filepath.Dir(signalDir)       // /tank/otel
+			dirSet[baseDir] = struct{}{}
 		}
 	}
 

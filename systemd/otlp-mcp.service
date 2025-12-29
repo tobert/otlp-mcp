@@ -41,6 +41,11 @@ After=network.target otelcol.service
 
 [Service]
 Type=exec
+# NOTE: Adjust --otel-config path to match your otel-collector configuration.
+# Common locations:
+#   System: /etc/otelcol/config.yaml (shown below)
+#   User:   %h/.config/otelcol/config.yaml
+# Remove --otel-config entirely to use OTLP gRPC receiver instead of files.
 ExecStart=%h/src/otlp-mcp/otlp-mcp serve \
     --transport http \
     --http-host 127.0.0.1 \

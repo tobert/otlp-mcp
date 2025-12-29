@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -282,24 +283,24 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 		log.Println("   - list_file_sources (show active sources)")
 	}
 
-	// 4. Load file sources from CLI flags
+	// 4. Load file sources from CLI flags (activeOnly=true to skip archives)
 	fileSources := cmd.StringSlice("file-source")
 	for _, dir := range fileSources {
-		if err := mcpServer.AddFileSource(ctx, dir); err != nil {
+		if err := mcpServer.AddFileSource(ctx, dir, true); err != nil {
 			log.Printf("⚠️  Failed to load file source %s: %v\n", dir, err)
 		} else {
 			log.Printf("📁 Loaded file source: %s\n", dir)
 		}
 	}
 
-	// 5. Load file sources from otel-collector config
+	// 5. Load file sources from otel-collector config (activeOnly=true to skip archives)
 	if useOtelConfig {
 		dirs, err := ParseOtelConfig(otelConfigPath)
 		if err != nil {
 			return fmt.Errorf("failed to parse otel config %s: %w", otelConfigPath, err)
 		}
 		for _, dir := range dirs {
-			if err := mcpServer.AddFileSource(ctx, dir); err != nil {
+			if err := mcpServer.AddFileSource(ctx, dir, true); err != nil {
 				log.Printf("⚠️  Failed to add file source %s: %v\n", dir, err)
 			} else {
 				log.Printf("📁 Auto-discovered file source: %s\n", dir)
@@ -317,7 +318,7 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 			log.Printf("📡 Received signal %v, initiating graceful shutdown...\n", sig)
 		}
 		cancel()
-		if !useOtelConfig {
+		if !useOtelConfig && otlpServer != nil {
 			otlpServer.Stop()
 		}
 	}()
@@ -325,6 +326,11 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 	// 7. Run MCP server on selected transport
 	switch cfg.Transport {
 	case "http":
+		// Warn if binding to non-localhost address (security risk)
+		if cfg.HTTPHost != "127.0.0.1" && cfg.HTTPHost != "::1" && cfg.HTTPHost != "localhost" {
+			log.Printf("⚠️  WARNING: Binding to %s - this server has NO AUTHENTICATION!\n", cfg.HTTPHost)
+			log.Println("⚠️  Only bind to localhost (127.0.0.1) unless you understand the security implications.")
+		}
 		log.Printf("🌐 MCP server starting on http://%s:%d/mcp\n", cfg.HTTPHost, cfg.HTTPPort)
 		log.Println("💡 Use MCP tools to query traces and get the OTLP endpoint")
 		log.Println("💡 If programs need a specific port, use add_otlp_port to listen on it")
@@ -479,14 +485,13 @@ func matchOriginPattern(origin, pattern string) bool {
 	if strings.HasSuffix(pattern, ":*") {
 		prefix := strings.TrimSuffix(pattern, "*")
 		if strings.HasPrefix(origin, prefix) {
-			// Verify remaining part is numeric (port)
-			remainder := strings.TrimPrefix(origin, prefix)
-			for _, c := range remainder {
-				if c < '0' || c > '9' {
-					return false
-				}
+			// Verify remaining part is a valid port number (1-65535)
+			portStr := strings.TrimPrefix(origin, prefix)
+			port, err := strconv.Atoi(portStr)
+			if err != nil {
+				return false
 			}
-			return len(remainder) > 0
+			return port >= 1 && port <= 65535
 		}
 	}
 

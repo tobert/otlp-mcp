@@ -14,18 +14,18 @@ import (
 // ObservabilityStorage provides unified access to all telemetry signals (traces, logs, metrics)
 // with snapshot support for time-based queries. This is the primary interface for MCP tools.
 type ObservabilityStorage struct {
-	traces   *TraceStorage
-	logs     *LogStorage
-	metrics  *MetricStorage
+	traces    *TraceStorage
+	logs      *LogStorage
+	metrics   *MetricStorage
 	snapshots *SnapshotManager
 }
 
 // NewObservabilityStorage creates a unified storage layer with the specified capacities.
 func NewObservabilityStorage(traceCapacity, logCapacity, metricCapacity int) *ObservabilityStorage {
 	return &ObservabilityStorage{
-		traces:   NewTraceStorage(traceCapacity),
-		logs:     NewLogStorage(logCapacity),
-		metrics:  NewMetricStorage(metricCapacity),
+		traces:    NewTraceStorage(traceCapacity),
+		logs:      NewLogStorage(logCapacity),
+		metrics:   NewMetricStorage(metricCapacity),
 		snapshots: NewSnapshotManager(),
 	}
 }
@@ -62,13 +62,13 @@ func (os *ObservabilityStorage) CreateSnapshot(name string) error {
 
 // SnapshotData represents all telemetry data between two points in time.
 type SnapshotData struct {
-	StartSnapshot string                `json:"start_snapshot"`
-	EndSnapshot   string                `json:"end_snapshot"`
-	TimeRange     TimeRange             `json:"time_range"`
-	Traces        []*StoredSpan         `json:"traces"`
-	Logs          []*StoredLog          `json:"logs"`
-	Metrics       []*StoredMetric       `json:"metrics"`
-	Summary       SnapshotDataSummary   `json:"summary"`
+	StartSnapshot string              `json:"start_snapshot"`
+	EndSnapshot   string              `json:"end_snapshot"`
+	TimeRange     TimeRange           `json:"time_range"`
+	Traces        []*StoredSpan       `json:"traces"`
+	Logs          []*StoredLog        `json:"logs"`
+	Metrics       []*StoredMetric     `json:"metrics"`
+	Summary       SnapshotDataSummary `json:"summary"`
 }
 
 // TimeRange represents a time window.
@@ -80,13 +80,13 @@ type TimeRange struct {
 
 // SnapshotDataSummary provides quick stats about the snapshot data.
 type SnapshotDataSummary struct {
-	SpanCount      int              `json:"span_count"`
-	LogCount       int              `json:"log_count"`
-	MetricCount    int              `json:"metric_count"`
-	Services       []string         `json:"services"`
-	TraceIDs       []string         `json:"trace_ids"`
-	LogSeverities  map[string]int   `json:"log_severities"`
-	MetricNames    []string         `json:"metric_names"`
+	SpanCount     int            `json:"span_count"`
+	LogCount      int            `json:"log_count"`
+	MetricCount   int            `json:"metric_count"`
+	Services      []string       `json:"services"`
+	TraceIDs      []string       `json:"trace_ids"`
+	LogSeverities map[string]int `json:"log_severities"`
+	MetricNames   []string       `json:"metric_names"`
 }
 
 // GetSnapshotData retrieves all telemetry data between two snapshots.
@@ -174,10 +174,10 @@ type QueryFilter struct {
 
 // QueryResult contains filtered telemetry data across all signals.
 type QueryResult struct {
-	Filter  QueryFilter     `json:"filter"`
-	Traces  []*StoredSpan   `json:"traces"`
-	Logs    []*StoredLog    `json:"logs"`
-	Metrics []*StoredMetric `json:"metrics"`
+	Filter  QueryFilter         `json:"filter"`
+	Traces  []*StoredSpan       `json:"traces"`
+	Logs    []*StoredLog        `json:"logs"`
+	Metrics []*StoredMetric     `json:"metrics"`
 	Summary SnapshotDataSummary `json:"summary"`
 }
 
@@ -239,10 +239,10 @@ func (os *ObservabilityStorage) Query(filter QueryFilter) (*QueryResult, error) 
 
 // AllStats returns comprehensive statistics across all signal types.
 type AllStats struct {
-	Traces      StorageStats       `json:"traces"`
-	Logs        LogStorageStats    `json:"logs"`
-	Metrics     MetricStorageStats `json:"metrics"`
-	Snapshots   int                `json:"snapshot_count"`
+	Traces    StorageStats       `json:"traces"`
+	Logs      LogStorageStats    `json:"logs"`
+	Metrics   MetricStorageStats `json:"metrics"`
+	Snapshots int                `json:"snapshot_count"`
 }
 
 // Stats returns comprehensive statistics for all storage.
@@ -352,7 +352,7 @@ func filterTraces(traces []*StoredSpan, filter QueryFilter) []*StoredSpan {
 
 	// If no filters, return all
 	if !hasServiceFilter && !hasTraceIDFilter && !hasSpanNameFilter &&
-	   !hasStatusFilter && !hasDurationFilter && !hasAttributeFilter {
+		!hasStatusFilter && !hasDurationFilter && !hasAttributeFilter {
 		return traces
 	}
 

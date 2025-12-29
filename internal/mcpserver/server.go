@@ -118,8 +118,10 @@ func (s *Server) Shutdown() {
 }
 
 // AddFileSource adds a new file source that reads OTLP JSONL from a directory.
+// When activeOnly is true, only active files (e.g., traces.jsonl) are loaded,
+// skipping rotated archives (e.g., traces-2025-12-09T13-10-56.jsonl).
 // Returns an error if the directory is already being watched.
-func (s *Server) AddFileSource(ctx context.Context, directory string) error {
+func (s *Server) AddFileSource(ctx context.Context, directory string, activeOnly bool) error {
 	s.fileSourcesMu.Lock()
 	defer s.fileSourcesMu.Unlock()
 
@@ -128,8 +130,9 @@ func (s *Server) AddFileSource(ctx context.Context, directory string) error {
 	}
 
 	fs, err := filereader.New(filereader.Config{
-		Directory: directory,
-		Verbose:   s.verbose,
+		Directory:  directory,
+		Verbose:    s.verbose,
+		ActiveOnly: activeOnly,
 	}, s.storage)
 	if err != nil {
 		return fmt.Errorf("failed to create file source: %w", err)

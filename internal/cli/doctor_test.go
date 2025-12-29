@@ -40,7 +40,7 @@ func (m *mockFsUtils) ReadFile(name string) ([]byte, error) {
 	return nil, m.readFileErr
 }
 func (m *mockFsUtils) UserHomeDir() (string, error) { return m.homeDir, m.homeDirErr }
-func (m *mockFsUtils) Getwd() (string, error) { return m.cwd, m.cwdErr }
+func (m *mockFsUtils) Getwd() (string, error)       { return m.cwd, m.cwdErr }
 func (m *mockFsUtils) LookPath(file string) (string, error) {
 	if path, ok := m.lookPathMap[file]; ok {
 		return path, nil
@@ -61,14 +61,14 @@ func TestDoctorCommand(t *testing.T) {
 	// Test case 1: No config file, otel-cli not found
 	// This should result in a failure for MCP config and a warning for otel-cli
 	mockUtils1 := &mockFsUtils{
-		executable:    "/usr/local/bin/otlp-mcp",
-		homeDir:       "/home/testuser",
-		cwd:           "/home/testuser/project",
+		executable: "/usr/local/bin/otlp-mcp",
+		homeDir:    "/home/testuser",
+		cwd:        "/home/testuser/project",
 		statMap: map[string]os.FileInfo{
 			"/usr/local/bin/otlp-mcp": &mockFileInfo{mode: 0755}, // Executable exists and is executable
 		},
-		statErr:       os.ErrNotExist, // Simulate no config file for other paths
-		lookPathErr:   os.ErrNotExist, // Simulate otel-cli not found
+		statErr:     os.ErrNotExist, // Simulate no config file for other paths
+		lookPathErr: os.ErrNotExist, // Simulate otel-cli not found
 	}
 
 	var buf bytes.Buffer
@@ -136,7 +136,7 @@ func TestDoctorCommand(t *testing.T) {
 }
 
 // mockFileInfo implements os.FileInfo for testing purposes
-type mockFileInfo struct{
+type mockFileInfo struct {
 	name    string
 	size    int64
 	mode    os.FileMode

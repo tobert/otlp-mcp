@@ -55,12 +55,12 @@ type fsUtils interface {
 
 type realFsUtils struct{}
 
-func (r *realFsUtils) Executable() (string, error) { return os.Executable() }
+func (r *realFsUtils) Executable() (string, error)           { return os.Executable() }
 func (r *realFsUtils) Stat(name string) (os.FileInfo, error) { return os.Stat(name) }
-func (r *realFsUtils) ReadFile(name string) ([]byte, error) { return os.ReadFile(name) }
-func (r *realFsUtils) UserHomeDir() (string, error) { return os.UserHomeDir() }
-func (r *realFsUtils) Getwd() (string, error) { return os.Getwd() }
-func (r *realFsUtils) LookPath(file string) (string, error) { return exec.LookPath(file) }
+func (r *realFsUtils) ReadFile(name string) ([]byte, error)  { return os.ReadFile(name) }
+func (r *realFsUtils) UserHomeDir() (string, error)          { return os.UserHomeDir() }
+func (r *realFsUtils) Getwd() (string, error)                { return os.Getwd() }
+func (r *realFsUtils) LookPath(file string) (string, error)  { return exec.LookPath(file) }
 
 func runDoctor(version string) error {
 	return runDoctorWithUtils(version, &realFsUtils{})
@@ -381,8 +381,8 @@ func getMCPConfigPaths(utils fsUtils) []string {
 	// Check project-level configs first (more specific)
 	if cwd != "" {
 		paths = append(paths,
-			filepath.Join(cwd, ".gemini", "settings.json"),  // Gemini CLI (per-project)
-			filepath.Join(cwd, ".claude", "settings.json"),   // Claude (if per-project exists)
+			filepath.Join(cwd, ".gemini", "settings.json"), // Gemini CLI (per-project)
+			filepath.Join(cwd, ".claude", "settings.json"), // Claude (if per-project exists)
 		)
 	}
 
