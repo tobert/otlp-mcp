@@ -1,4 +1,4 @@
-# CLAUDE.md: Agent Development Guide
+# BOTS.md: Agent Development Guide
 
 Guidance for agents working with this codebase.
 
@@ -10,7 +10,6 @@ Guidance for agents working with this codebase.
 
 - **Language**: Go 1.25+
 - **Protocols**: OTLP (gRPC/HTTP), MCP
-- **Source**: Refactored from [otel-cli](https://github.com/tobert/otel-cli)
 
 ## Package Structure
 
@@ -50,33 +49,16 @@ Agent ←→ MCP Server ←→ Storage ←→ OTLP Server ←→ Programs
 - **Storage**: Ring buffers (10K spans, 50K logs, 100K metrics)
 - **MCP Tools**: get_otlp_endpoint, query, create_snapshot, get_snapshot_data, etc.
 
-## Code Style
+## Contribution
 
-- Readable, idiomatic Go
-- Full descriptive names
-- "Why" comments only
-- Handle all errors with context (`%w`)
-- Table-driven tests
+Fork and build your feature on a branch. PR it when you're ready.
 
-## Git Workflow
+Always test and fmt before uploading.
 
-Use standard git with feature branches and PRs:
+- `go test ./...`
+- `go fmt ./...`
 
-```bash
-git checkout -b feat/my-feature
-# ... make changes ...
-go test ./...
-git add -A && git commit
-git push -u origin feat/my-feature
-gh pr create
-```
-
-**PR Requirements:**
-- Test before PR (`go test ./...`)
-- One logical change per PR
-- Include `Co-Authored-By` for agent contributions
-
-## Agent Attribution
+### Agent Attribution
 
 Include in commits when agents contribute:
 
