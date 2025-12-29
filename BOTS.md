@@ -47,7 +47,33 @@ Agent ←→ MCP Server ←→ Storage ←→ OTLP Server ←→ Programs
 
 - **OTLP**: Listens on localhost, accepts traces/logs/metrics
 - **Storage**: Ring buffers (10K spans, 50K logs, 100K metrics)
-- **MCP Tools**: get_otlp_endpoint, query, create_snapshot, get_snapshot_data, etc.
+
+## MCP Tools
+
+When otlp-mcp is connected, use these tools to observe telemetry:
+
+```
+# Get the OTLP endpoint for instrumented programs
+get_otlp_endpoint() → {"endpoint": "127.0.0.1:4317", "protocol": "grpc"}
+
+# Check buffer stats
+get_stats() → span_count, log_count, metric_count, services
+
+# Query telemetry with filters
+query(service_name: "my-service")
+query(errors_only: true)
+query(min_duration_ns: 500000000)  # Slow spans > 500ms
+
+# Snapshot workflow for before/after comparison
+create_snapshot(name: "before-fix")
+# ... run tests or make changes ...
+create_snapshot(name: "after-fix")
+get_snapshot_data(start_snapshot: "before-fix", end_snapshot: "after-fix")
+
+# Load telemetry from otel-collector file exports
+set_file_source(directory: "/tank/otel")
+list_file_sources()
+```
 
 ## Contribution
 
