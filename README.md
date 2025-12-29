@@ -554,10 +554,16 @@ go env GOPATH
 ## Development
 
 See [CLAUDE.md](CLAUDE.md) for:
-- Jujutsu (jj) workflow and collaboration protocol
-- Go 1.25+ code style guidelines
-- Agent development patterns
-- Architecture overview
+- Package structure and architecture
+- Go code style guidelines
+- Git workflow for contributors
+
+## Contributing
+
+Contributions welcome! This includes:
+- Bug reports and feature requests via [GitHub Issues](https://github.com/tobert/otlp-mcp/issues)
+- Pull requests for fixes and improvements
+- Agent-assisted PRs are welcome - include `Co-Authored-By` for attribution
 
 ## License
 
