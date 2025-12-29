@@ -22,6 +22,14 @@ type Config struct {
 	OTLPHost string `json:"otlp_host,omitempty"`
 	OTLPPort int    `json:"otlp_port,omitempty"`
 
+	// MCP transport configuration
+	Transport      string   `json:"transport,omitempty"`       // "stdio" (default) or "http"
+	HTTPHost       string   `json:"http_host,omitempty"`       // HTTP server bind address
+	HTTPPort       int      `json:"http_port,omitempty"`       // HTTP server port
+	AllowedOrigins []string `json:"allowed_origins,omitempty"` // Allowed Origin headers for CORS
+	SessionTimeout string   `json:"session_timeout,omitempty"` // Session idle timeout (e.g., "30m")
+	Stateless      bool     `json:"stateless,omitempty"`       // Run HTTP transport in stateless mode
+
 	// Logging configuration
 	Verbose bool `json:"verbose,omitempty"`
 }
@@ -32,6 +40,7 @@ type Config struct {
 // - 50,000 log records (future)
 // - 100,000 metric points (future)
 // - Localhost binding on ephemeral port
+// - stdio transport (or http on port 4380)
 func DefaultConfig() *Config {
 	return &Config{
 		TraceBufferSize:  10_000,
@@ -39,6 +48,12 @@ func DefaultConfig() *Config {
 		MetricBufferSize: 100_000,
 		OTLPHost:         "127.0.0.1",
 		OTLPPort:         0, // 0 means ephemeral port assignment
+		Transport:        "stdio",
+		HTTPHost:         "127.0.0.1",
+		HTTPPort:         4380,
+		AllowedOrigins:   []string{"http://localhost:*", "http://127.0.0.1:*"},
+		SessionTimeout:   "30m",
+		Stateless:        false,
 		Verbose:          false,
 	}
 }
@@ -140,6 +155,26 @@ func MergeConfigs(base, overlay *Config) *Config {
 	}
 	if overlay.MetricBufferSize > 0 {
 		merged.MetricBufferSize = overlay.MetricBufferSize
+	}
+
+	// Merge HTTP transport settings
+	if overlay.Transport != "" {
+		merged.Transport = overlay.Transport
+	}
+	if overlay.HTTPHost != "" {
+		merged.HTTPHost = overlay.HTTPHost
+	}
+	if overlay.HTTPPort > 0 {
+		merged.HTTPPort = overlay.HTTPPort
+	}
+	if len(overlay.AllowedOrigins) > 0 {
+		merged.AllowedOrigins = overlay.AllowedOrigins
+	}
+	if overlay.SessionTimeout != "" {
+		merged.SessionTimeout = overlay.SessionTimeout
+	}
+	if overlay.Stateless {
+		merged.Stateless = overlay.Stateless
 	}
 
 	return &merged
