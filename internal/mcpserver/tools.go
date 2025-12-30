@@ -642,6 +642,165 @@ func (s *Server) handleListFileSources(
 	}, nil
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// FAST POLLING TOOLS - Optimized for frequent status checks
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Tool: status (fast polling, ~100ms)
+
+type StatusInput struct{}
+
+type StatusOutput struct {
+	SpansReceived    uint64  `json:"spans_received" jsonschema:"Total spans received since startup"`
+	LogsReceived     uint64  `json:"logs_received" jsonschema:"Total logs received since startup"`
+	MetricsReceived  uint64  `json:"metrics_received" jsonschema:"Total metrics received since startup"`
+	RecentErrorCount int     `json:"recent_error_count" jsonschema:"Number of recent errors tracked (max 100)"`
+	Generation       uint64  `json:"generation" jsonschema:"Change counter - incremented on any telemetry receipt"`
+	UptimeSeconds    float64 `json:"uptime_seconds" jsonschema:"Server uptime in seconds"`
+}
+
+func (s *Server) handleStatus(
+	ctx context.Context,
+	req *mcp.CallToolRequest,
+	input StatusInput,
+) (*mcp.CallToolResult, StatusOutput, error) {
+	cache := s.storage.ActivityCache()
+
+	return &mcp.CallToolResult{}, StatusOutput{
+		SpansReceived:    cache.SpansReceived(),
+		LogsReceived:     cache.LogsReceived(),
+		MetricsReceived:  cache.MetricsReceived(),
+		RecentErrorCount: cache.RecentErrorCount(),
+		Generation:       cache.Generation(),
+		UptimeSeconds:    cache.UptimeSeconds(),
+	}, nil
+}
+
+// Tool: recent_activity (rich polling, 1-5s)
+
+// MaxMetricPeekNames is the maximum number of metric names allowed in a peek request.
+const MaxMetricPeekNames = 20
+
+// DefaultWindowDurationMs is the default window duration for activity summary.
+const DefaultWindowDurationMs = 60000 // 1 minute
+
+type RecentActivityInput struct {
+	MetricNames []string `json:"metric_names,omitempty" jsonschema:"Metric names to peek (max 20, empty = none)"`
+}
+
+type RecentActivityOutput struct {
+	RecentTraces     []ActivityTraceSummary `json:"recent_traces" jsonschema:"Most recent 5 traces"`
+	RecentErrors     []ActivityErrorSummary `json:"recent_errors" jsonschema:"Most recent 5 errors (separate from traces)"`
+	Throughput       ActivityThroughput     `json:"throughput" jsonschema:"Throughput counters (caller computes rates)"`
+	MetricsPeek      []ActivityMetricPeek   `json:"metrics_peek,omitempty" jsonschema:"Current values for requested metrics"`
+	WindowDurationMs int64                  `json:"window_duration_ms" jsonschema:"Window duration in milliseconds"`
+}
+
+type ActivityTraceSummary struct {
+	TraceID    string  `json:"trace_id" jsonschema:"Trace ID"`
+	Service    string  `json:"service" jsonschema:"Service name"`
+	RootSpan   string  `json:"root_span" jsonschema:"Root span name (or first span seen)"`
+	Status     string  `json:"status" jsonschema:"Status: OK, ERROR, or UNSET"`
+	DurationMs float64 `json:"duration_ms" jsonschema:"Duration in milliseconds"`
+	ErrorMsg   string  `json:"error_msg,omitempty" jsonschema:"Error message if status is ERROR"`
+}
+
+type ActivityErrorSummary struct {
+	TraceID   string `json:"trace_id" jsonschema:"Trace ID"`
+	Service   string `json:"service" jsonschema:"Service name"`
+	SpanName  string `json:"span_name" jsonschema:"Span name where error occurred"`
+	ErrorMsg  string `json:"error_msg" jsonschema:"Error message"`
+	Timestamp uint64 `json:"timestamp_unix_nano" jsonschema:"Error timestamp (Unix nanoseconds)"`
+}
+
+type ActivityThroughput struct {
+	TotalSpans   uint64 `json:"total_spans" jsonschema:"Total spans received"`
+	TotalLogs    uint64 `json:"total_logs" jsonschema:"Total logs received"`
+	TotalMetrics uint64 `json:"total_metrics" jsonschema:"Total metrics received"`
+}
+
+type ActivityMetricPeek struct {
+	Name        string             `json:"name" jsonschema:"Metric name"`
+	Type        string             `json:"type" jsonschema:"Metric type"`
+	Value       *float64           `json:"value,omitempty" jsonschema:"Current value (Gauge/Sum)"`
+	Count       *uint64            `json:"count,omitempty" jsonschema:"Count (Histogram)"`
+	Sum         *float64           `json:"sum,omitempty" jsonschema:"Sum (Histogram)"`
+	Min         *float64           `json:"min,omitempty" jsonschema:"Min value (Histogram)"`
+	Max         *float64           `json:"max,omitempty" jsonschema:"Max value (Histogram)"`
+	Percentiles map[string]float64 `json:"percentiles,omitempty" jsonschema:"Percentiles: p50, p95, p99 (Histogram)"`
+}
+
+func (s *Server) handleRecentActivity(
+	ctx context.Context,
+	req *mcp.CallToolRequest,
+	input RecentActivityInput,
+) (*mcp.CallToolResult, RecentActivityOutput, error) {
+	// Validate metric names limit
+	if len(input.MetricNames) > MaxMetricPeekNames {
+		return nil, RecentActivityOutput{}, fmt.Errorf("too many metric names: max %d allowed, got %d", MaxMetricPeekNames, len(input.MetricNames))
+	}
+
+	cache := s.storage.ActivityCache()
+
+	// Get recent traces (5)
+	recentTraces := cache.RecentTraces(5)
+	traces := make([]ActivityTraceSummary, len(recentTraces))
+	for i, t := range recentTraces {
+		traces[i] = ActivityTraceSummary{
+			TraceID:    t.TraceID,
+			Service:    t.Service,
+			RootSpan:   t.RootSpan,
+			Status:     t.Status,
+			DurationMs: t.DurationMs,
+			ErrorMsg:   t.ErrorMsg,
+		}
+	}
+
+	// Get recent errors (5)
+	recentErrors := cache.RecentErrors(5)
+	errors := make([]ActivityErrorSummary, len(recentErrors))
+	for i, e := range recentErrors {
+		errors[i] = ActivityErrorSummary{
+			TraceID:   e.TraceID,
+			Service:   e.Service,
+			SpanName:  e.SpanName,
+			ErrorMsg:  e.ErrorMsg,
+			Timestamp: e.Timestamp,
+		}
+	}
+
+	// Get metric peek
+	var metricsPeek []ActivityMetricPeek
+	if len(input.MetricNames) > 0 {
+		peeked := cache.PeekMetrics(input.MetricNames)
+		metricsPeek = make([]ActivityMetricPeek, len(peeked))
+		for i, p := range peeked {
+			metricsPeek[i] = ActivityMetricPeek{
+				Name:        p.Name,
+				Type:        p.Type.String(),
+				Value:       p.Value,
+				Count:       p.Count,
+				Sum:         p.Sum,
+				Min:         p.Min,
+				Max:         p.Max,
+				Percentiles: p.Percentiles,
+			}
+		}
+	}
+
+	return &mcp.CallToolResult{}, RecentActivityOutput{
+		RecentTraces: traces,
+		RecentErrors: errors,
+		Throughput: ActivityThroughput{
+			TotalSpans:   cache.SpansReceived(),
+			TotalLogs:    cache.LogsReceived(),
+			TotalMetrics: cache.MetricsReceived(),
+		},
+		MetricsPeek:      metricsPeek,
+		WindowDurationMs: DefaultWindowDurationMs,
+	}, nil
+}
+
 // Register all tools
 
 func (s *Server) registerTools() error {
@@ -704,6 +863,17 @@ func (s *Server) registerTools() error {
 		Name:        "list_file_sources",
 		Description: "List all directories currently being watched for OTLP JSONL files. Shows which subdirectories are being watched and how many files are tracked.",
 	}, s.handleListFileSources)
+
+	// Fast polling tools
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "status",
+		Description: "Fast status check for frequent polling. Returns monotonic counters (spans/logs/metrics received), recent error count, generation counter for change detection, and uptime. Counters never reset - caller computes rates.",
+	}, s.handleStatus)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "recent_activity",
+		Description: "Recent telemetry activity summary. Returns recent 5 traces (with status/duration), recent 5 errors (separate from traces), throughput counters, and optional metric peek. Pass metric_names (max 20) to get current values including histogram percentiles (p50/p95/p99).",
+	}, s.handleRecentActivity)
 
 	return nil
 }

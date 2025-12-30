@@ -56,7 +56,7 @@ If you're helping a user with OpenTelemetry-instrumented code, this MCP server e
 
 ## Status
 
-✅ **Production Ready** - Full implementation complete with 9 snapshot-first MCP tools:
+✅ **Production Ready** - Full implementation complete with 11 MCP tools:
 - **Unified OTLP endpoint** - Single port accepts traces, logs, and metrics
 - **Dynamic port management** - Add/remove listening ports without restart
 - **Snapshot-based temporal queries** - Compare before/after states
@@ -149,7 +149,7 @@ You should get back something like:
 
 ## MCP Tools
 
-The server provides 9 snapshot-first tools for temporal observability:
+The server provides 11 tools for observability:
 
 | Tool | Description |
 |------|-------------|
@@ -162,6 +162,8 @@ The server provides 9 snapshot-first tools for temporal observability:
 | `manage_snapshots` | List/delete/clear snapshots. Surgical cleanup - prefer this over `clear_data` for targeted housekeeping |
 | `get_stats` | Buffer health dashboard - check capacity, current usage, and snapshot count. Use before long-running observations to avoid buffer wraparound |
 | `clear_data` | Nuclear option - wipes ALL telemetry data and snapshots. Use sparingly for complete resets |
+| `status` | Fast status check - monotonic counters, generation for change detection, error count, uptime |
+| `recent_activity` | Recent activity summary - traces (deduplicated), errors, throughput, optional metric peek with histogram percentiles |
 
 ## Workflow Examples
 
