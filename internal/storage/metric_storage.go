@@ -92,6 +92,11 @@ func (ms *MetricStorage) ReceiveMetrics(ctx context.Context, resourceMetrics []*
 	return nil
 }
 
+// addMetric adds a single metric to storage.
+func (ms *MetricStorage) addMetric(metric *StoredMetric) {
+	ms.metrics.Add(metric)
+}
+
 // GetRecentMetrics returns the N most recent metrics.
 func (ms *MetricStorage) GetRecentMetrics(n int) []*StoredMetric {
 	return ms.metrics.GetRecent(n)

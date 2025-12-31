@@ -18,6 +18,7 @@ type ObservabilityStorage struct {
 	logs      *LogStorage
 	metrics   *MetricStorage
 	snapshots *SnapshotManager
+	activityCache  *ActivityCache
 }
 
 // NewObservabilityStorage creates a unified storage layer with the specified capacities.
@@ -27,6 +28,7 @@ func NewObservabilityStorage(traceCapacity, logCapacity, metricCapacity int) *Ob
 		logs:      NewLogStorage(logCapacity),
 		metrics:   NewMetricStorage(metricCapacity),
 		snapshots: NewSnapshotManager(),
+		activityCache:  NewActivityCache(),
 	}
 }
 
@@ -48,6 +50,11 @@ func (os *ObservabilityStorage) Metrics() *MetricStorage {
 // Snapshots returns the snapshot manager.
 func (os *ObservabilityStorage) Snapshots() *SnapshotManager {
 	return os.snapshots
+}
+
+// ActivityCache returns the activity cache for fast polling.
+func (os *ObservabilityStorage) ActivityCache() *ActivityCache {
+	return os.activityCache
 }
 
 // CreateSnapshot creates a named snapshot of current buffer positions.
@@ -263,23 +270,86 @@ func (os *ObservabilityStorage) Clear() {
 	os.logs.Clear()
 	os.metrics.Clear()
 	os.snapshots.Clear()
+	os.activityCache.Clear()
 }
 
 // Receiver interface implementations for OTLP servers
 
 // ReceiveSpans implements the trace receiver interface.
+// It stores spans inline and updates the activity cache for fast polling.
 func (os *ObservabilityStorage) ReceiveSpans(ctx context.Context, resourceSpans []*tracepb.ResourceSpans) error {
-	return os.traces.ReceiveSpans(ctx, resourceSpans)
+	// Store spans and update activity cache
+	for _, rs := range resourceSpans {
+		serviceName := extractServiceName(rs.Resource)
+
+		for _, ss := range rs.ScopeSpans {
+			for _, span := range ss.Spans {
+				stored := &StoredSpan{
+					ResourceSpan: rs,
+					ScopeSpan:    ss,
+					Span:         span,
+					TraceID:      traceIDToString(span.TraceId),
+					SpanID:       spanIDToString(span.SpanId),
+					ServiceName:  serviceName,
+					SpanName:     span.Name,
+				}
+
+				os.traces.addSpan(stored)
+				os.activityCache.RecordSpan(stored)
+			}
+		}
+	}
+
+	return nil
 }
 
 // ReceiveLogs implements the logs receiver interface.
+// It delegates storage to the underlying logs receiver and updates activity cache counters.
 func (os *ObservabilityStorage) ReceiveLogs(ctx context.Context, resourceLogs []*logspb.ResourceLogs) error {
-	return os.logs.ReceiveLogs(ctx, resourceLogs)
+	// Store logs in underlying storage
+	err := os.logs.ReceiveLogs(ctx, resourceLogs)
+	if err != nil {
+		return err
+	}
+
+	// Update activity cache counters
+	for _, rl := range resourceLogs {
+		for _, sl := range rl.ScopeLogs {
+			for range sl.LogRecords {
+				os.activityCache.RecordLog()
+			}
+		}
+	}
+
+	return nil
 }
 
 // ReceiveMetrics implements the metrics receiver interface.
+// It stores metrics inline and updates the activity cache for fast polling.
 func (os *ObservabilityStorage) ReceiveMetrics(ctx context.Context, resourceMetrics []*metricspb.ResourceMetrics) error {
-	return os.metrics.ReceiveMetrics(ctx, resourceMetrics)
+	// Store metrics and update activity cache
+	for _, rm := range resourceMetrics {
+		serviceName := extractServiceName(rm.Resource)
+
+		for _, sm := range rm.ScopeMetrics {
+			for _, metric := range sm.Metrics {
+				stored := &StoredMetric{
+					ResourceMetric: rm,
+					ScopeMetric:    sm,
+					Metric:         metric,
+					MetricName:     metric.Name,
+					ServiceName:    serviceName,
+					MetricType:     determineMetricType(metric),
+				}
+
+				extractMetricSummary(stored)
+				os.metrics.addMetric(stored)
+				os.activityCache.RecordMetric(stored)
+			}
+		}
+	}
+
+	return nil
 }
 
 // Helper functions
