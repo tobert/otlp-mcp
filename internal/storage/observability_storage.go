@@ -14,21 +14,21 @@ import (
 // ObservabilityStorage provides unified access to all telemetry signals (traces, logs, metrics)
 // with snapshot support for time-based queries. This is the primary interface for MCP tools.
 type ObservabilityStorage struct {
-	traces    *TraceStorage
-	logs      *LogStorage
-	metrics   *MetricStorage
-	snapshots *SnapshotManager
-	activityCache  *ActivityCache
+	traces        *TraceStorage
+	logs          *LogStorage
+	metrics       *MetricStorage
+	snapshots     *SnapshotManager
+	activityCache *ActivityCache
 }
 
 // NewObservabilityStorage creates a unified storage layer with the specified capacities.
 func NewObservabilityStorage(traceCapacity, logCapacity, metricCapacity int) *ObservabilityStorage {
 	return &ObservabilityStorage{
-		traces:    NewTraceStorage(traceCapacity),
-		logs:      NewLogStorage(logCapacity),
-		metrics:   NewMetricStorage(metricCapacity),
-		snapshots: NewSnapshotManager(),
-		activityCache:  NewActivityCache(),
+		traces:        NewTraceStorage(traceCapacity),
+		logs:          NewLogStorage(logCapacity),
+		metrics:       NewMetricStorage(metricCapacity),
+		snapshots:     NewSnapshotManager(),
+		activityCache: NewActivityCache(),
 	}
 }
 

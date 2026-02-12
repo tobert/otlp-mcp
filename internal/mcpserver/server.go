@@ -64,12 +64,15 @@ Workflow: get_otlp_endpoint -> set OTEL_EXPORTER_OTLP_ENDPOINT -> run program ->
 
 Tools: query (filtered search), create_snapshot/get_snapshot_data (before/after), status/recent_activity (polling).
 Resources: otlp://endpoint, otlp://stats, otlp://services, otlp://snapshots, otlp://file-sources.`,
+		SubscribeHandler:   func(_ context.Context, _ *mcp.SubscribeRequest) error { return nil },
+		UnsubscribeHandler: func(_ context.Context, _ *mcp.UnsubscribeRequest) error { return nil },
 	})
 
-	// Register all tools
+	// Register all tools and resources
 	if err := s.registerTools(); err != nil {
 		return nil, fmt.Errorf("failed to register tools: %w", err)
 	}
+	s.registerResources()
 
 	return s, nil
 }

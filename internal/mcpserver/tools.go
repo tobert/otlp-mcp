@@ -173,6 +173,8 @@ func (s *Server) handleCreateSnapshot(
 		return nil, CreateSnapshotOutput{}, fmt.Errorf("failed to get created snapshot: %w", err)
 	}
 
+	_ = s.mcpServer.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{URI: "otlp://snapshots"})
+
 	return &mcp.CallToolResult{}, CreateSnapshotOutput{
 		Name:      snap.Name,
 		TracePos:  snap.TracePos,
@@ -404,6 +406,7 @@ func (s *Server) handleManageSnapshots(
 		if err != nil {
 			return nil, ManageSnapshotsOutput{}, fmt.Errorf("failed to delete snapshot: %w", err)
 		}
+		_ = s.mcpServer.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{URI: "otlp://snapshots"})
 		return &mcp.CallToolResult{}, ManageSnapshotsOutput{
 			Action:  "delete",
 			Message: fmt.Sprintf("Deleted snapshot '%s'", input.Name),
@@ -411,6 +414,7 @@ func (s *Server) handleManageSnapshots(
 
 	case "clear":
 		s.storage.Snapshots().Clear()
+		_ = s.mcpServer.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{URI: "otlp://snapshots"})
 		return &mcp.CallToolResult{}, ManageSnapshotsOutput{
 			Action:  "clear",
 			Message: "Cleared all snapshots",
@@ -558,6 +562,8 @@ func (s *Server) handleSetFileSource(
 		}
 	}
 
+	_ = s.mcpServer.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{URI: "otlp://file-sources"})
+
 	return &mcp.CallToolResult{}, SetFileSourceOutput{
 		Directory:   input.Directory,
 		WatchedDirs: watchedDirs,
@@ -597,6 +603,8 @@ func (s *Server) handleRemoveFileSource(
 			Message:   err.Error(),
 		}, nil
 	}
+
+	_ = s.mcpServer.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{URI: "otlp://file-sources"})
 
 	return &mcp.CallToolResult{}, RemoveFileSourceOutput{
 		Directory: input.Directory,
