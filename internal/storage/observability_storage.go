@@ -262,6 +262,27 @@ func (os *ObservabilityStorage) Stats() AllStats {
 	}
 }
 
+// Services returns a sorted, deduplicated list of service names across all signal types.
+func (os *ObservabilityStorage) Services() []string {
+	serviceSet := make(map[string]struct{})
+	for _, span := range os.traces.GetAllSpans() {
+		serviceSet[span.ServiceName] = struct{}{}
+	}
+	for _, log := range os.logs.GetAllLogs() {
+		serviceSet[log.ServiceName] = struct{}{}
+	}
+	for _, metric := range os.metrics.GetAllMetrics() {
+		serviceSet[metric.ServiceName] = struct{}{}
+	}
+
+	services := make([]string, 0, len(serviceSet))
+	for svc := range serviceSet {
+		services = append(services, svc)
+	}
+	sort.Strings(services)
+	return services
+}
+
 // Clear removes all telemetry data AND snapshots.
 // This is a complete reset - use sparingly. For normal cleanup,
 // delete individual snapshots with manage_snapshots instead.
