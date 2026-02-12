@@ -806,73 +806,72 @@ func (s *Server) handleRecentActivity(
 func (s *Server) registerTools() error {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_otlp_endpoint",
-		Description: "🚀 START HERE: Get the unified OTLP (OpenTelemetry Protocol) endpoint address. Call this FIRST when working with OpenTelemetry instrumentation, then set OTEL_EXPORTER_OTLP_ENDPOINT=<endpoint> when running programs. Single port accepts traces + logs + metrics from any OTLP-compatible instrumentation (OpenTelemetry SDKs, auto-instrumentation, etc.).",
+		Description: "Get OTLP endpoint address. Set OTEL_EXPORTER_OTLP_ENDPOINT=<result> to instrument programs.",
 	}, s.handleGetOTLPEndpoint)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "add_otlp_port",
-		Description: "Add an additional listening port to the OTLP receiver without disrupting existing connections. Useful when Claude Code restarts and you need to listen on a port that running programs are using. The server will accept OpenTelemetry telemetry on all added ports simultaneously. Example: add_otlp_port(40187) to listen on a specific port your application expects.",
+		Description: "Add a listening port to the OTLP receiver without disrupting existing connections.",
 	}, s.handleAddOTLPPort)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "remove_otlp_port",
-		Description: "Remove a listening port from the OTLP receiver. The server on that port is gracefully stopped. Cannot remove the last port - at least one must remain active. Useful for cleaning up ports that are no longer needed after programs finish.",
+		Description: "Remove a listening port from the OTLP receiver. Cannot remove the last port.",
 	}, s.handleRemoveOTLPPort)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_snapshot",
-		Description: "Bookmark this moment in time with a descriptive name (e.g. 'before-deploy', 'test-start', 'after-fix'). Creates a reference point across all OpenTelemetry signals (traces, logs, metrics) so you can compare before/after or query time windows. Think: Git commit for live telemetry. Essential for temporal analysis and debugging.",
+		Description: "Bookmark current buffer positions for before/after comparison across all signals.",
 	}, s.handleCreateSnapshot)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "query",
-		Description: "Search across all OpenTelemetry signals (traces, logs, metrics) with optional filters. Use for ad-hoc observability exploration: filter by service name, trace_id for debugging distributed requests, severity for error analysis, or combine with snapshot time ranges for temporal analysis. Perfect for answering 'show me all ERROR logs' or 'find traces for service X'.",
+		Description: "Search traces, logs, metrics with filters: service, trace_id, errors_only, duration, attributes, snapshot ranges.",
 	}, s.handleQuery)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_snapshot_data",
-		Description: "Get everything that happened between two snapshots - perfect for before/after observability analysis. Ask: 'What traces/logs/metrics appeared during deployment?' or 'What changed between test runs?'. Unlocks temporal reasoning: snapshot 'before-deploy' + 'after-deploy' = complete picture of system behavior changes. The foundation of snapshot-driven debugging.",
+		Description: "Get all telemetry between two snapshots for before/after analysis.",
 	}, s.handleGetSnapshotData)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "manage_snapshots",
-		Description: "Housekeeping for your observability timeline - list your captured moments ('list'), delete specific bookmarks ('delete'), or clear all snapshots ('clear'). Prefer deleting individual snapshots as you finish analyzing them - keeps your timeline clean without losing data.",
+		Description: "List, delete, or clear snapshots. Actions: 'list', 'delete', 'clear'.",
 	}, s.handleManageSnapshots)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_stats",
-		Description: "Buffer health dashboard - check OpenTelemetry data capacity, current usage, and snapshot count. Use before long-running tests/observations to ensure buffers won't wrap and lose early data. Answers: 'Am I capturing telemetry?', 'How much history do I have?', and 'Will my buffers overflow?'. Shows span/log/metric counts and capacity limits.",
+		Description: "Buffer health: span/log/metric counts, capacities, snapshot count.",
 	}, s.handleGetStats)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "clear_data",
-		Description: "Nuclear option - wipes ALL telemetry data and snapshots. Use sparingly, only for complete resets. For normal cleanup, delete individual snapshots with manage_snapshots instead - it's surgical vs. scorched earth.",
+		Description: "Wipe ALL telemetry data and snapshots. Irreversible.",
 	}, s.handleClearData)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "set_file_source",
-		Description: "📁 Load OTLP telemetry from filesystem. Point this at a directory where OpenTelemetry Collector's file exporter writes JSONL files (e.g., /tank/otel). The directory should contain traces/, logs/, and/or metrics/ subdirectories. Data is loaded into ring buffers and the directory is watched for new files. Perfect for analyzing historical telemetry or when the collector is already writing to disk.",
+		Description: "Load OTLP JSONL from a collector file exporter directory. Watches for new files.",
 	}, s.handleSetFileSource)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "remove_file_source",
-		Description: "Stop watching a filesystem directory for OTLP data. Previously loaded data remains in the ring buffers.",
+		Description: "Stop watching a directory for OTLP data. Loaded data stays in buffers.",
 	}, s.handleRemoveFileSource)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_file_sources",
-		Description: "List all directories currently being watched for OTLP JSONL files. Shows which subdirectories are being watched and how many files are tracked.",
+		Description: "List watched directories and file tracking stats.",
 	}, s.handleListFileSources)
 
-	// Fast polling tools
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "status",
-		Description: "Fast status check for frequent polling. Returns monotonic counters (spans/logs/metrics received), recent error count, generation counter for change detection, and uptime. Counters never reset - caller computes rates.",
+		Description: "Fast poll: monotonic counters (spans/logs/metrics), generation counter, error count, uptime.",
 	}, s.handleStatus)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "recent_activity",
-		Description: "Recent telemetry activity summary. Returns recent 5 traces (with status/duration), recent 5 errors (separate from traces), throughput counters, and optional metric peek. Pass metric_names (max 20) to get current values including histogram percentiles (p50/p95/p99).",
+		Description: "Recent 5 traces, 5 errors, throughput, optional metric peek (pass metric_names, max 20).",
 	}, s.handleRecentActivity)
 
 	return nil
