@@ -26,10 +26,10 @@ type ActivityCache struct {
 
 	// Recent traces tracking - deduplicated by service:rootSpan
 	// This keeps one entry per unique service+rootSpan combo, showing the most recent
-	recentTracesMu    sync.RWMutex
-	recentTraces      map[string]*TraceEntry // key: "service:rootSpan"
-	traceIDToKey      map[string]string      // traceID -> "service:rootSpan" for updates
-	traceInsertOrder  []string               // keys in insertion order for LRU eviction
+	recentTracesMu   sync.RWMutex
+	recentTraces     map[string]*TraceEntry // key: "service:rootSpan"
+	traceIDToKey     map[string]string      // traceID -> "service:rootSpan" for updates
+	traceInsertOrder []string               // keys in insertion order for LRU eviction
 
 	// Metric peek cache - keyed by metric name
 	metricPeekMu   sync.RWMutex

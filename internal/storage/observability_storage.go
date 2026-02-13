@@ -14,21 +14,21 @@ import (
 // ObservabilityStorage provides unified access to all telemetry signals (traces, logs, metrics)
 // with snapshot support for time-based queries. This is the primary interface for MCP tools.
 type ObservabilityStorage struct {
-	traces    *TraceStorage
-	logs      *LogStorage
-	metrics   *MetricStorage
-	snapshots *SnapshotManager
-	activityCache  *ActivityCache
+	traces        *TraceStorage
+	logs          *LogStorage
+	metrics       *MetricStorage
+	snapshots     *SnapshotManager
+	activityCache *ActivityCache
 }
 
 // NewObservabilityStorage creates a unified storage layer with the specified capacities.
 func NewObservabilityStorage(traceCapacity, logCapacity, metricCapacity int) *ObservabilityStorage {
 	return &ObservabilityStorage{
-		traces:    NewTraceStorage(traceCapacity),
-		logs:      NewLogStorage(logCapacity),
-		metrics:   NewMetricStorage(metricCapacity),
-		snapshots: NewSnapshotManager(),
-		activityCache:  NewActivityCache(),
+		traces:        NewTraceStorage(traceCapacity),
+		logs:          NewLogStorage(logCapacity),
+		metrics:       NewMetricStorage(metricCapacity),
+		snapshots:     NewSnapshotManager(),
+		activityCache: NewActivityCache(),
 	}
 }
 
@@ -260,6 +260,27 @@ func (os *ObservabilityStorage) Stats() AllStats {
 		Metrics:   os.metrics.Stats(),
 		Snapshots: os.snapshots.Count(),
 	}
+}
+
+// Services returns a sorted, deduplicated list of service names across all signal types.
+func (os *ObservabilityStorage) Services() []string {
+	serviceSet := make(map[string]struct{})
+	for _, span := range os.traces.GetAllSpans() {
+		serviceSet[span.ServiceName] = struct{}{}
+	}
+	for _, log := range os.logs.GetAllLogs() {
+		serviceSet[log.ServiceName] = struct{}{}
+	}
+	for _, metric := range os.metrics.GetAllMetrics() {
+		serviceSet[metric.ServiceName] = struct{}{}
+	}
+
+	services := make([]string, 0, len(serviceSet))
+	for svc := range serviceSet {
+		services = append(services, svc)
+	}
+	sort.Strings(services)
+	return services
 }
 
 // Clear removes all telemetry data AND snapshots.

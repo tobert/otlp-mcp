@@ -56,39 +56,23 @@ func NewServer(obsStorage *storage.ObservabilityStorage, otlpReceiver *otlprecei
 	s.mcpServer = mcp.NewServer(&mcp.Implementation{
 		Name:    "otlp-mcp",
 		Title:   "OpenTelemetry Observability for Agents",
-		Version: "0.3.0", // v0.3.0: doctor + richer query filters
+		Version: "0.4.0",
 	}, &mcp.ServerOptions{
-		Instructions: `🔭 OpenTelemetry Observability via MCP
+		Instructions: `OpenTelemetry observability server. Captures OTLP traces, logs, and metrics in memory.
 
-This server enables real-time observability for OpenTelemetry-instrumented programs:
-• Captures OTLP traces, logs, and metrics in memory (no external dependencies!)
-• Provides snapshot-based temporal queries ("what happened during deployment?")
-• Dynamic port management - add/remove OTLP ports on-demand
-• Powerful query filters - find errors, slow operations, specific attributes
-• Perfect for debugging, testing, performance analysis, and understanding system behavior
+Workflow: get_otlp_endpoint -> set OTEL_EXPORTER_OTLP_ENDPOINT -> run program -> query/snapshot.
 
-💡 Quick Start Workflow:
-1. get_otlp_endpoint - Get the OTLP endpoint address (or add_otlp_port for specific port)
-2. Run your instrumented program: OTEL_EXPORTER_OTLP_ENDPOINT=<endpoint> ./yourapp
-3. create_snapshot before and after key events (e.g., 'before-test', 'after-deploy')
-4. query with filters to find specific telemetry (errors_only, min_duration_ns, attributes)
-5. get_snapshot_data to analyze what happened between snapshots
-
-🎯 Use Cases:
-• Find failures: query({errors_only: true})
-• Find slow operations: query({min_duration_ns: 500000000})
-• Find HTTP errors: query({attribute_equals: {"http.status_code": "500"}})
-• Compare before/after: snapshots + get_snapshot_data
-• Observing test runs: see exactly what traces/logs/metrics your tests generated
-
-📌 Pro Tip: Use this whenever you see OpenTelemetry, OTLP, tracing, or observability!
-The unified endpoint accepts traces + logs + metrics on a single port.`,
+Tools: query (filtered search), create_snapshot/get_snapshot_data (before/after), status/recent_activity (polling).
+Resources: otlp://endpoint, otlp://stats, otlp://services, otlp://snapshots, otlp://file-sources.`,
+		SubscribeHandler:   func(_ context.Context, _ *mcp.SubscribeRequest) error { return nil },
+		UnsubscribeHandler: func(_ context.Context, _ *mcp.UnsubscribeRequest) error { return nil },
 	})
 
-	// Register all tools
+	// Register all tools and resources
 	if err := s.registerTools(); err != nil {
 		return nil, fmt.Errorf("failed to register tools: %w", err)
 	}
+	s.registerResources()
 
 	return s, nil
 }
@@ -147,17 +131,19 @@ func (s *Server) AddFileSource(ctx context.Context, directory string, activeOnly
 }
 
 // RemoveFileSource stops and removes a file source.
+// The source is removed from the map under the lock, then stopped
+// outside the lock so fs.Stop cannot block other operations.
 func (s *Server) RemoveFileSource(directory string) error {
 	s.fileSourcesMu.Lock()
-	defer s.fileSourcesMu.Unlock()
-
 	fs, exists := s.fileSources[directory]
 	if !exists {
+		s.fileSourcesMu.Unlock()
 		return fmt.Errorf("directory %s is not being watched", directory)
 	}
+	delete(s.fileSources, directory)
+	s.fileSourcesMu.Unlock()
 
 	fs.Stop()
-	delete(s.fileSources, directory)
 	return nil
 }
 
@@ -186,12 +172,19 @@ func (s *Server) FileSourceStats() []filereader.Stats {
 }
 
 // stopAllFileSources stops all file sources (called on shutdown).
+// Sources are collected and the map cleared under the lock, then
+// stopped outside the lock so a slow fs.Stop (which waits on
+// goroutines) cannot block other file-source operations.
 func (s *Server) stopAllFileSources() {
 	s.fileSourcesMu.Lock()
-	defer s.fileSourcesMu.Unlock()
+	sources := make([]*filereader.FileSource, 0, len(s.fileSources))
+	for _, fs := range s.fileSources {
+		sources = append(sources, fs)
+	}
+	clear(s.fileSources)
+	s.fileSourcesMu.Unlock()
 
-	for dir, fs := range s.fileSources {
+	for _, fs := range sources {
 		fs.Stop()
-		delete(s.fileSources, dir)
 	}
 }
