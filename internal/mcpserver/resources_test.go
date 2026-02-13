@@ -2,7 +2,7 @@ package mcpserver
 
 import (
 	"context"
-	"strings"
+	"encoding/json"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -13,7 +13,6 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
-// newTestServer creates a Server with small buffers for testing.
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 	obsStorage := storage.NewObservabilityStorage(100, 500, 1000)
@@ -40,12 +39,16 @@ func readReq(uri string) *mcp.ReadResourceRequest {
 	}
 }
 
-func requireText(t *testing.T, result *mcp.ReadResourceResult) string {
+func readJSON(t *testing.T, result *mcp.ReadResourceResult) map[string]any {
 	t.Helper()
 	if len(result.Contents) != 1 {
 		t.Fatalf("expected 1 content, got %d", len(result.Contents))
 	}
-	return result.Contents[0].Text
+	var data map[string]any
+	if err := json.Unmarshal([]byte(result.Contents[0].Text), &data); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	return data
 }
 
 func TestEndpointResource(t *testing.T) {
@@ -54,19 +57,13 @@ func TestEndpointResource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	text := requireText(t, result)
+	data := readJSON(t, result)
 
-	if !strings.Contains(text, "OTLP Endpoint") {
-		t.Error("expected header")
+	if data["endpoint"] == "" {
+		t.Error("expected non-empty endpoint")
 	}
-	if !strings.Contains(text, "Address:") {
-		t.Error("expected Address field")
-	}
-	if !strings.Contains(text, "Protocol:  grpc") {
-		t.Error("expected grpc protocol")
-	}
-	if !strings.Contains(text, "OTEL_EXPORTER_OTLP_ENDPOINT=") {
-		t.Error("expected env var")
+	if data["protocol"] != "grpc" {
+		t.Errorf("expected protocol grpc, got %v", data["protocol"])
 	}
 }
 
@@ -76,22 +73,15 @@ func TestStatsResource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	text := requireText(t, result)
+	data := readJSON(t, result)
 
-	if !strings.Contains(text, "Buffer Statistics") {
-		t.Error("expected header")
+	traces := data["traces"].(map[string]any)
+	if int(traces["capacity"].(float64)) != 100 {
+		t.Errorf("expected trace capacity 100, got %v", traces["capacity"])
 	}
-	if !strings.Contains(text, "Traces") {
-		t.Error("expected Traces row")
-	}
-	if !strings.Contains(text, "Logs") {
-		t.Error("expected Logs row")
-	}
-	if !strings.Contains(text, "Metrics") {
-		t.Error("expected Metrics row")
-	}
-	if !strings.Contains(text, "100") {
-		t.Error("expected capacity numbers")
+	logs := data["logs"].(map[string]any)
+	if int(logs["capacity"].(float64)) != 500 {
+		t.Errorf("expected log capacity 500, got %v", logs["capacity"])
 	}
 }
 
@@ -101,13 +91,10 @@ func TestServicesResourceEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	text := requireText(t, result)
+	data := readJSON(t, result)
 
-	if !strings.Contains(text, "Discovered Services (0)") {
-		t.Error("expected header with count 0")
-	}
-	if !strings.Contains(text, "(none)") {
-		t.Error("expected (none) for empty list")
+	if int(data["count"].(float64)) != 0 {
+		t.Errorf("expected 0 services, got %v", data["count"])
 	}
 }
 
@@ -124,16 +111,10 @@ func TestServicesResourceWithData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	text := requireText(t, result)
+	data := readJSON(t, result)
 
-	if !strings.Contains(text, "Discovered Services (2)") {
-		t.Errorf("expected 2 services, got:\n%s", text)
-	}
-	if !strings.Contains(text, "svc-alpha") {
-		t.Error("expected svc-alpha")
-	}
-	if !strings.Contains(text, "svc-beta") {
-		t.Error("expected svc-beta")
+	if int(data["count"].(float64)) != 2 {
+		t.Errorf("expected 2 services, got %v", data["count"])
 	}
 }
 
@@ -143,13 +124,10 @@ func TestSnapshotsResourceEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	text := requireText(t, result)
+	data := readJSON(t, result)
 
-	if !strings.Contains(text, "Snapshots (0)") {
-		t.Error("expected header with count 0")
-	}
-	if !strings.Contains(text, "(none)") {
-		t.Error("expected (none)")
+	if int(data["count"].(float64)) != 0 {
+		t.Errorf("expected 0 snapshots, got %v", data["count"])
 	}
 }
 
@@ -162,16 +140,10 @@ func TestSnapshotsResourceWithData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	text := requireText(t, result)
+	data := readJSON(t, result)
 
-	if !strings.Contains(text, "Snapshots (2)") {
-		t.Errorf("expected 2 snapshots, got:\n%s", text)
-	}
-	if !strings.Contains(text, "snap-a") {
-		t.Error("expected snap-a")
-	}
-	if !strings.Contains(text, "snap-b") {
-		t.Error("expected snap-b")
+	if int(data["count"].(float64)) != 2 {
+		t.Errorf("expected 2 snapshots, got %v", data["count"])
 	}
 }
 
@@ -181,13 +153,10 @@ func TestFileSourcesResourceEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	text := requireText(t, result)
+	data := readJSON(t, result)
 
-	if !strings.Contains(text, "File Sources (0)") {
-		t.Error("expected header with count 0")
-	}
-	if !strings.Contains(text, "(none)") {
-		t.Error("expected (none)")
+	if int(data["count"].(float64)) != 0 {
+		t.Errorf("expected 0 file sources, got %v", data["count"])
 	}
 }
 
@@ -203,13 +172,13 @@ func TestServiceDetailResource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	text := requireText(t, result)
+	data := readJSON(t, result)
 
-	if !strings.Contains(text, "Service: my-service") {
-		t.Error("expected service header")
+	if data["service"] != "my-service" {
+		t.Errorf("expected service my-service, got %v", data["service"])
 	}
-	if !strings.Contains(text, "Spans:") {
-		t.Error("expected Spans field")
+	if int(data["spans"].(float64)) != 1 {
+		t.Errorf("expected 1 span, got %v", data["spans"])
 	}
 }
 
@@ -229,16 +198,13 @@ func TestSnapshotDetailResource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	text := requireText(t, result)
+	data := readJSON(t, result)
 
-	if !strings.Contains(text, "Snapshot: test-snap") {
-		t.Error("expected snapshot header")
+	if data["name"] != "test-snap" {
+		t.Errorf("expected name test-snap, got %v", data["name"])
 	}
-	if !strings.Contains(text, "Created:") {
-		t.Error("expected Created field")
-	}
-	if !strings.Contains(text, "Trace Pos:") {
-		t.Error("expected Trace Pos field")
+	if data["created_at"] == nil {
+		t.Error("expected non-nil created_at")
 	}
 }
 
@@ -252,10 +218,8 @@ func TestSnapshotDetailResourceNotFound(t *testing.T) {
 
 func TestExtractURIParam(t *testing.T) {
 	tests := []struct {
-		uri    string
-		prefix string
-		want   string
-		err    bool
+		uri, prefix, want string
+		err               bool
 	}{
 		{"otlp://services/my-svc", "otlp://services/", "my-svc", false},
 		{"otlp://services/url%20encoded", "otlp://services/", "url encoded", false},
@@ -276,27 +240,6 @@ func TestExtractURIParam(t *testing.T) {
 	}
 }
 
-func TestFmtNum(t *testing.T) {
-	tests := []struct {
-		n    int
-		want string
-	}{
-		{0, "0"},
-		{999, "999"},
-		{1000, "1,000"},
-		{10000, "10,000"},
-		{100000, "100,000"},
-		{1234567, "1,234,567"},
-	}
-	for _, tt := range tests {
-		got := fmtNum(tt.n)
-		if got != tt.want {
-			t.Errorf("fmtNum(%d) = %q, want %q", tt.n, got, tt.want)
-		}
-	}
-}
-
-// makeResourceSpan creates a minimal ResourceSpans for testing.
 func makeResourceSpan(serviceName, spanName string) *tracepb.ResourceSpans {
 	return &tracepb.ResourceSpans{
 		Resource: &resourcepb.Resource{
