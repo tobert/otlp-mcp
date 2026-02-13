@@ -47,6 +47,11 @@ type FileSource struct {
 	verbose    bool
 	activeOnly bool // Only load active files, skip rotated archives
 
+	// Storage capacities for tail-seek optimization
+	spanCapacity   int
+	logCapacity    int
+	metricCapacity int
+
 	watcher *fsnotify.Watcher
 
 	// Track file read positions to only read new data
@@ -72,6 +77,12 @@ type Config struct {
 	// Optional: time cutoff - only load data newer than this
 	// Zero value means load everything (future feature)
 	SinceTime time.Time
+
+	// Storage capacities — used by tail-seek to avoid reading entire files
+	// when only the last N entries fit in ring buffers. Zero means read all.
+	SpanCapacity   int
+	LogCapacity    int
+	MetricCapacity int
 }
 
 // New creates a new FileSource that reads from the given directory.
@@ -99,14 +110,17 @@ func New(cfg Config, storage StorageReceiver) (*FileSource, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &FileSource{
-		directory:   cfg.Directory,
-		storage:     storage,
-		verbose:     cfg.Verbose,
-		activeOnly:  cfg.ActiveOnly,
-		watcher:     watcher,
-		fileOffsets: make(map[string]int64),
-		ctx:         ctx,
-		cancel:      cancel,
+		directory:      cfg.Directory,
+		storage:        storage,
+		verbose:        cfg.Verbose,
+		activeOnly:     cfg.ActiveOnly,
+		spanCapacity:   cfg.SpanCapacity,
+		logCapacity:    cfg.LogCapacity,
+		metricCapacity: cfg.MetricCapacity,
+		watcher:        watcher,
+		fileOffsets:    make(map[string]int64),
+		ctx:            ctx,
+		cancel:         cancel,
 	}, nil
 }
 
@@ -157,12 +171,13 @@ func (fs *FileSource) Directory() string {
 // loadInitialData reads all existing JSONL files into storage.
 func (fs *FileSource) loadInitialData(ctx context.Context) error {
 	signals := []struct {
-		name   string
-		loader func(context.Context, string) (int, error)
+		name     string
+		capacity int
+		loader   func(context.Context, string, int) (int, error)
 	}{
-		{"traces", fs.loadTraceFile},
-		{"logs", fs.loadLogFile},
-		{"metrics", fs.loadMetricFile},
+		{"traces", fs.spanCapacity, fs.loadTraceFile},
+		{"logs", fs.logCapacity, fs.loadLogFile},
+		{"metrics", fs.metricCapacity, fs.loadMetricFile},
 	}
 
 	for _, sig := range signals {
@@ -176,7 +191,7 @@ func (fs *FileSource) loadInitialData(ctx context.Context) error {
 		}
 
 		for _, file := range files {
-			count, err := sig.loader(ctx, file)
+			count, err := sig.loader(ctx, file, sig.capacity)
 			if err != nil {
 				log.Printf("⚠️  FileSource: error loading %s: %v\n", file, err)
 				continue
@@ -250,8 +265,8 @@ func (fs *FileSource) findJSONLFiles(dir string) ([]string, error) {
 }
 
 // loadTraceFile reads a JSONL file containing traces and feeds them to storage.
-func (fs *FileSource) loadTraceFile(ctx context.Context, path string) (int, error) {
-	return fs.processFile(ctx, path, func(line []byte) error {
+func (fs *FileSource) loadTraceFile(ctx context.Context, path string, capacity int) (int, error) {
+	return fs.processFile(ctx, path, capacity, func(line []byte) error {
 		var data tracepb.TracesData
 		if err := protojson.Unmarshal(line, &data); err != nil {
 			return fmt.Errorf("parse trace JSON: %w", err)
@@ -264,8 +279,8 @@ func (fs *FileSource) loadTraceFile(ctx context.Context, path string) (int, erro
 }
 
 // loadLogFile reads a JSONL file containing logs and feeds them to storage.
-func (fs *FileSource) loadLogFile(ctx context.Context, path string) (int, error) {
-	return fs.processFile(ctx, path, func(line []byte) error {
+func (fs *FileSource) loadLogFile(ctx context.Context, path string, capacity int) (int, error) {
+	return fs.processFile(ctx, path, capacity, func(line []byte) error {
 		var data logspb.LogsData
 		if err := protojson.Unmarshal(line, &data); err != nil {
 			return fmt.Errorf("parse log JSON: %w", err)
@@ -278,8 +293,8 @@ func (fs *FileSource) loadLogFile(ctx context.Context, path string) (int, error)
 }
 
 // loadMetricFile reads a JSONL file containing metrics and feeds them to storage.
-func (fs *FileSource) loadMetricFile(ctx context.Context, path string) (int, error) {
-	return fs.processFile(ctx, path, func(line []byte) error {
+func (fs *FileSource) loadMetricFile(ctx context.Context, path string, capacity int) (int, error) {
+	return fs.processFile(ctx, path, capacity, func(line []byte) error {
 		var data metricspb.MetricsData
 		if err := protojson.Unmarshal(line, &data); err != nil {
 			return fmt.Errorf("parse metric JSON: %w", err)
@@ -292,8 +307,10 @@ func (fs *FileSource) loadMetricFile(ctx context.Context, path string) (int, err
 }
 
 // processFile reads a JSONL file from the last known offset, calling handler for each line.
-// Returns the number of lines processed.
-func (fs *FileSource) processFile(ctx context.Context, path string, handler func([]byte) error) (int, error) {
+// When capacity > 0 and this is the first read (offset == 0), it tail-seeks to only read
+// approximately the last `capacity` lines, avoiding parsing data that would be evicted
+// from ring buffers anyway. Returns the number of lines processed.
+func (fs *FileSource) processFile(ctx context.Context, path string, capacity int, handler func([]byte) error) (int, error) {
 	fs.mu.Lock()
 	offset := fs.fileOffsets[path]
 	fs.mu.Unlock()
@@ -304,11 +321,20 @@ func (fs *FileSource) processFile(ctx context.Context, path string, handler func
 	}
 	defer file.Close()
 
-	// Seek to last read position
+	// Tail-seek optimization: on first read with known capacity, skip to the
+	// tail of the file. We only need ~capacity lines since that's all the
+	// ring buffer can hold.
+	if offset == 0 && capacity > 0 {
+		offset = fs.estimateTailOffset(file, capacity)
+	}
+
+	// Seek to read position
 	if offset > 0 {
 		if _, err := file.Seek(offset, io.SeekStart); err != nil {
 			// File might have been rotated, start from beginning
-			offset = 0
+			if _, err := file.Seek(0, io.SeekStart); err != nil {
+				return 0, err
+			}
 		}
 	}
 
@@ -352,6 +378,77 @@ func (fs *FileSource) processFile(ctx context.Context, path string, handler func
 	return count, nil
 }
 
+// estimateTailOffset calculates a byte offset to seek to for reading approximately
+// the last `capacity` lines from a file. It samples the first few lines to estimate
+// average line size, then seeks back from the end with a 2x safety margin.
+// Returns 0 if the file is small enough to read entirely.
+func (fs *FileSource) estimateTailOffset(file *os.File, capacity int) int64 {
+	info, err := file.Stat()
+	if err != nil {
+		return 0
+	}
+	fileSize := info.Size()
+
+	// Sample first lines to estimate average line size
+	const sampleLines = 10
+	scanner := bufio.NewScanner(file)
+	buf := make([]byte, 0, jsonlBufferInitial)
+	scanner.Buffer(buf, jsonlBufferMax)
+
+	var totalBytes int64
+	var lineCount int
+	for scanner.Scan() && lineCount < sampleLines {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		totalBytes += int64(len(line)) + 1 // +1 for newline
+		lineCount++
+	}
+
+	// Reset to beginning (caller will seek to our returned offset)
+	file.Seek(0, io.SeekStart)
+
+	if lineCount == 0 {
+		return 0
+	}
+
+	avgLineSize := totalBytes / int64(lineCount)
+	// 2x safety margin to ensure we get at least capacity lines
+	estimatedBytes := int64(capacity) * avgLineSize * 2
+
+	if estimatedBytes >= fileSize {
+		return 0 // File is small enough, read it all
+	}
+
+	seekPos := fileSize - estimatedBytes
+
+	// Find the next newline boundary after seekPos so we don't start mid-line
+	file.Seek(seekPos, io.SeekStart)
+	oneByte := make([]byte, 1)
+	for {
+		_, err := file.Read(oneByte)
+		if err != nil {
+			return 0
+		}
+		seekPos++
+		if oneByte[0] == '\n' {
+			break
+		}
+	}
+
+	// Reset again for caller
+	file.Seek(0, io.SeekStart)
+
+	if fs.verbose {
+		skippedMB := float64(seekPos) / (1024 * 1024)
+		log.Printf("📁 FileSource: tail-seek %s: skipping %.1fMB, reading last %.1fMB (capacity=%d, avg line=%d bytes)\n",
+			filepath.Base(file.Name()), skippedMB, float64(fileSize-seekPos)/(1024*1024), capacity, avgLineSize)
+	}
+
+	return seekPos
+}
+
 // watchLoop runs the file watcher event loop.
 func (fs *FileSource) watchLoop() {
 	defer fs.wg.Done()
@@ -384,11 +481,11 @@ func (fs *FileSource) watchLoop() {
 			var err error
 			switch signal {
 			case "traces":
-				count, err = fs.loadTraceFile(fs.ctx, path)
+				count, err = fs.loadTraceFile(fs.ctx, path, 0)
 			case "logs":
-				count, err = fs.loadLogFile(fs.ctx, path)
+				count, err = fs.loadLogFile(fs.ctx, path, 0)
 			case "metrics":
-				count, err = fs.loadMetricFile(fs.ctx, path)
+				count, err = fs.loadMetricFile(fs.ctx, path, 0)
 			}
 
 			if err != nil {
