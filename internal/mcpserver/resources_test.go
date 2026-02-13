@@ -2,7 +2,7 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -40,36 +40,33 @@ func readReq(uri string) *mcp.ReadResourceRequest {
 	}
 }
 
+func requireText(t *testing.T, result *mcp.ReadResourceResult) string {
+	t.Helper()
+	if len(result.Contents) != 1 {
+		t.Fatalf("expected 1 content, got %d", len(result.Contents))
+	}
+	return result.Contents[0].Text
+}
+
 func TestEndpointResource(t *testing.T) {
 	srv := newTestServer(t)
 	result, err := srv.handleEndpointResource(context.Background(), readReq("otlp://endpoint"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(result.Contents) != 1 {
-		t.Fatalf("expected 1 content, got %d", len(result.Contents))
-	}
+	text := requireText(t, result)
 
-	var data struct {
-		Endpoint  string            `json:"endpoint"`
-		Protocol  string            `json:"protocol"`
-		Endpoints []string          `json:"endpoints"`
-		EnvVars   map[string]string `json:"environment_vars"`
+	if !strings.Contains(text, "OTLP Endpoint") {
+		t.Error("expected header")
 	}
-	if err := json.Unmarshal([]byte(result.Contents[0].Text), &data); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	if !strings.Contains(text, "Address:") {
+		t.Error("expected Address field")
 	}
-	if data.Endpoint == "" {
-		t.Error("expected non-empty endpoint")
+	if !strings.Contains(text, "Protocol:  grpc") {
+		t.Error("expected grpc protocol")
 	}
-	if data.Protocol != "grpc" {
-		t.Errorf("expected protocol grpc, got %s", data.Protocol)
-	}
-	if len(data.Endpoints) == 0 {
-		t.Error("expected at least one endpoint")
-	}
-	if data.EnvVars["OTEL_EXPORTER_OTLP_ENDPOINT"] == "" {
-		t.Error("expected OTEL_EXPORTER_OTLP_ENDPOINT env var")
+	if !strings.Contains(text, "OTEL_EXPORTER_OTLP_ENDPOINT=") {
+		t.Error("expected env var")
 	}
 }
 
@@ -79,27 +76,22 @@ func TestStatsResource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	text := requireText(t, result)
 
-	var data struct {
-		Traces struct {
-			Capacity int `json:"capacity"`
-		} `json:"traces"`
-		Logs struct {
-			Capacity int `json:"capacity"`
-		} `json:"logs"`
-		Metrics struct {
-			Capacity int `json:"capacity"`
-		} `json:"metrics"`
-		Snapshots int `json:"snapshot_count"`
+	if !strings.Contains(text, "Buffer Statistics") {
+		t.Error("expected header")
 	}
-	if err := json.Unmarshal([]byte(result.Contents[0].Text), &data); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	if !strings.Contains(text, "Traces") {
+		t.Error("expected Traces row")
 	}
-	if data.Traces.Capacity != 100 {
-		t.Errorf("expected trace capacity 100, got %d", data.Traces.Capacity)
+	if !strings.Contains(text, "Logs") {
+		t.Error("expected Logs row")
 	}
-	if data.Logs.Capacity != 500 {
-		t.Errorf("expected log capacity 500, got %d", data.Logs.Capacity)
+	if !strings.Contains(text, "Metrics") {
+		t.Error("expected Metrics row")
+	}
+	if !strings.Contains(text, "100") {
+		t.Error("expected capacity numbers")
 	}
 }
 
@@ -109,16 +101,13 @@ func TestServicesResourceEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	text := requireText(t, result)
 
-	var data struct {
-		Services []string `json:"services"`
-		Count    int      `json:"count"`
+	if !strings.Contains(text, "Discovered Services (0)") {
+		t.Error("expected header with count 0")
 	}
-	if err := json.Unmarshal([]byte(result.Contents[0].Text), &data); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if data.Count != 0 {
-		t.Errorf("expected 0 services, got %d", data.Count)
+	if !strings.Contains(text, "(none)") {
+		t.Error("expected (none) for empty list")
 	}
 }
 
@@ -126,7 +115,6 @@ func TestServicesResourceWithData(t *testing.T) {
 	srv := newTestServer(t)
 	ctx := context.Background()
 
-	// Add spans with different services
 	srv.storage.ReceiveSpans(ctx, []*tracepb.ResourceSpans{
 		makeResourceSpan("svc-alpha", "op1"),
 		makeResourceSpan("svc-beta", "op2"),
@@ -136,20 +124,16 @@ func TestServicesResourceWithData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	text := requireText(t, result)
 
-	var data struct {
-		Services []string `json:"services"`
-		Count    int      `json:"count"`
+	if !strings.Contains(text, "Discovered Services (2)") {
+		t.Errorf("expected 2 services, got:\n%s", text)
 	}
-	if err := json.Unmarshal([]byte(result.Contents[0].Text), &data); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	if !strings.Contains(text, "svc-alpha") {
+		t.Error("expected svc-alpha")
 	}
-	if data.Count != 2 {
-		t.Errorf("expected 2 services, got %d", data.Count)
-	}
-	// Should be sorted
-	if len(data.Services) == 2 && data.Services[0] != "svc-alpha" {
-		t.Errorf("expected sorted services, got %v", data.Services)
+	if !strings.Contains(text, "svc-beta") {
+		t.Error("expected svc-beta")
 	}
 }
 
@@ -159,16 +143,13 @@ func TestSnapshotsResourceEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	text := requireText(t, result)
 
-	var data struct {
-		Snapshots []snapshotInfo `json:"snapshots"`
-		Count     int            `json:"count"`
+	if !strings.Contains(text, "Snapshots (0)") {
+		t.Error("expected header with count 0")
 	}
-	if err := json.Unmarshal([]byte(result.Contents[0].Text), &data); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if data.Count != 0 {
-		t.Errorf("expected 0 snapshots, got %d", data.Count)
+	if !strings.Contains(text, "(none)") {
+		t.Error("expected (none)")
 	}
 }
 
@@ -181,16 +162,16 @@ func TestSnapshotsResourceWithData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	text := requireText(t, result)
 
-	var data struct {
-		Snapshots []snapshotInfo `json:"snapshots"`
-		Count     int            `json:"count"`
+	if !strings.Contains(text, "Snapshots (2)") {
+		t.Errorf("expected 2 snapshots, got:\n%s", text)
 	}
-	if err := json.Unmarshal([]byte(result.Contents[0].Text), &data); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	if !strings.Contains(text, "snap-a") {
+		t.Error("expected snap-a")
 	}
-	if data.Count != 2 {
-		t.Errorf("expected 2 snapshots, got %d", data.Count)
+	if !strings.Contains(text, "snap-b") {
+		t.Error("expected snap-b")
 	}
 }
 
@@ -200,16 +181,13 @@ func TestFileSourcesResourceEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	text := requireText(t, result)
 
-	var data struct {
-		Sources []FileSourceInfo `json:"sources"`
-		Count   int              `json:"count"`
+	if !strings.Contains(text, "File Sources (0)") {
+		t.Error("expected header with count 0")
 	}
-	if err := json.Unmarshal([]byte(result.Contents[0].Text), &data); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if data.Count != 0 {
-		t.Errorf("expected 0 file sources, got %d", data.Count)
+	if !strings.Contains(text, "(none)") {
+		t.Error("expected (none)")
 	}
 }
 
@@ -225,19 +203,13 @@ func TestServiceDetailResource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	text := requireText(t, result)
 
-	var data struct {
-		Service   string `json:"service"`
-		SpanCount int    `json:"span_count"`
+	if !strings.Contains(text, "Service: my-service") {
+		t.Error("expected service header")
 	}
-	if err := json.Unmarshal([]byte(result.Contents[0].Text), &data); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if data.Service != "my-service" {
-		t.Errorf("expected service my-service, got %s", data.Service)
-	}
-	if data.SpanCount != 1 {
-		t.Errorf("expected 1 span, got %d", data.SpanCount)
+	if !strings.Contains(text, "Spans:") {
+		t.Error("expected Spans field")
 	}
 }
 
@@ -257,16 +229,16 @@ func TestSnapshotDetailResource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	text := requireText(t, result)
 
-	var data snapshotInfo
-	if err := json.Unmarshal([]byte(result.Contents[0].Text), &data); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	if !strings.Contains(text, "Snapshot: test-snap") {
+		t.Error("expected snapshot header")
 	}
-	if data.Name != "test-snap" {
-		t.Errorf("expected name test-snap, got %s", data.Name)
+	if !strings.Contains(text, "Created:") {
+		t.Error("expected Created field")
 	}
-	if data.CreatedAt == "" {
-		t.Error("expected non-empty created_at")
+	if !strings.Contains(text, "Trace Pos:") {
+		t.Error("expected Trace Pos field")
 	}
 }
 
@@ -300,6 +272,26 @@ func TestExtractURIParam(t *testing.T) {
 		}
 		if got != tt.want {
 			t.Errorf("extractURIParam(%q, %q) = %q, want %q", tt.uri, tt.prefix, got, tt.want)
+		}
+	}
+}
+
+func TestFmtNum(t *testing.T) {
+	tests := []struct {
+		n    int
+		want string
+	}{
+		{0, "0"},
+		{999, "999"},
+		{1000, "1,000"},
+		{10000, "10,000"},
+		{100000, "100,000"},
+		{1234567, "1,234,567"},
+	}
+	for _, tt := range tests {
+		got := fmtNum(tt.n)
+		if got != tt.want {
+			t.Errorf("fmtNum(%d) = %q, want %q", tt.n, got, tt.want)
 		}
 	}
 }
