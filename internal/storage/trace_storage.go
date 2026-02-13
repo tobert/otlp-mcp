@@ -24,7 +24,7 @@ type StoredSpan struct {
 
 // TraceStorage stores OTLP trace spans without content indexes.
 // Queries use position-based ranges with in-memory filtering.
-// It implements the otlpreceiver.SpanReceiver interface.
+// It implements the ReceiveSpans method used by the unified receiver.
 type TraceStorage struct {
 	spans *RingBuffer[*StoredSpan]
 }
@@ -36,7 +36,7 @@ func NewTraceStorage(capacity int) *TraceStorage {
 	}
 }
 
-// ReceiveSpans implements otlpreceiver.SpanReceiver.
+// ReceiveSpans stores incoming OTLP resource spans.
 // It stores received spans and updates indexes for querying.
 func (ts *TraceStorage) ReceiveSpans(ctx context.Context, resourceSpans []*tracepb.ResourceSpans) error {
 	for _, rs := range resourceSpans {

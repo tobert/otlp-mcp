@@ -23,16 +23,16 @@ import (
 // 4. Query storage for the trace
 // 5. Verify data integrity
 func TestEndToEnd(t *testing.T) {
-	// 1. Setup trace storage
-	traceStorage := storage.NewTraceStorage(1000)
+	// 1. Setup observability storage
+	obsStorage := storage.NewObservabilityStorage(1000, 1000, 1000)
 
-	// 2. Start OTLP receiver on ephemeral port
-	otlpServer, err := otlpreceiver.NewServer(
+	// 2. Start unified OTLP receiver on ephemeral port
+	otlpServer, err := otlpreceiver.NewUnifiedServer(
 		otlpreceiver.Config{
 			Host: "127.0.0.1",
 			Port: 0, // ephemeral port
 		},
-		traceStorage,
+		obsStorage,
 	)
 	if err != nil {
 		t.Fatalf("failed to create OTLP server: %v", err)
@@ -124,6 +124,7 @@ func TestEndToEnd(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 5. Query storage and verify data
+	traceStorage := obsStorage.Traces()
 	recent := traceStorage.GetRecentSpans(10)
 	if len(recent) == 0 {
 		t.Fatal("no spans found in storage after export")
@@ -180,16 +181,16 @@ func TestEndToEnd(t *testing.T) {
 		t.Errorf("expected capacity 1000, got %d", stats.Capacity)
 	}
 
-	t.Log("✅ End-to-end test passed: OTLP → Storage → Query")
+	t.Log("End-to-end test passed: OTLP -> Storage -> Query")
 }
 
 // TestMultipleSpans tests handling of multiple spans across multiple exports.
 func TestMultipleSpans(t *testing.T) {
-	traceStorage := storage.NewTraceStorage(100)
+	obsStorage := storage.NewObservabilityStorage(100, 100, 100)
 
-	otlpServer, err := otlpreceiver.NewServer(
+	otlpServer, err := otlpreceiver.NewUnifiedServer(
 		otlpreceiver.Config{Host: "127.0.0.1", Port: 0},
-		traceStorage,
+		obsStorage,
 	)
 	if err != nil {
 		t.Fatalf("failed to create OTLP server: %v", err)
@@ -249,7 +250,7 @@ func TestMultipleSpans(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	stats := traceStorage.Stats()
+	stats := obsStorage.Traces().Stats()
 	if stats.SpanCount != 10 {
 		t.Errorf("expected 10 spans, got %d", stats.SpanCount)
 	}
@@ -258,5 +259,5 @@ func TestMultipleSpans(t *testing.T) {
 		t.Errorf("expected 10 traces, got %d", stats.TraceCount)
 	}
 
-	t.Log("✅ Multiple spans test passed")
+	t.Log("Multiple spans test passed")
 }

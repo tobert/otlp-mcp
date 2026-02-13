@@ -380,19 +380,16 @@ func (fs *FileSource) watchLoop() {
 			dir := filepath.Dir(path)
 			signal := filepath.Base(dir)
 
-			ctx, cancel := context.WithTimeout(fs.ctx, 30*time.Second)
-
 			var count int
 			var err error
 			switch signal {
 			case "traces":
-				count, err = fs.loadTraceFile(ctx, path)
+				count, err = fs.loadTraceFile(fs.ctx, path)
 			case "logs":
-				count, err = fs.loadLogFile(ctx, path)
+				count, err = fs.loadLogFile(fs.ctx, path)
 			case "metrics":
-				count, err = fs.loadMetricFile(ctx, path)
+				count, err = fs.loadMetricFile(fs.ctx, path)
 			}
-			cancel()
 
 			if err != nil {
 				log.Printf("⚠️  FileSource: error reading %s: %v\n", path, err)
