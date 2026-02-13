@@ -27,7 +27,7 @@ import (
 // Dynamic port management: add/remove ports on-demand for long-running programs!
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Tool 1: get_otlp_endpoint
+// get_otlp_endpoint
 
 type GetOTLPEndpointInput struct{}
 
@@ -53,7 +53,7 @@ func (s *Server) handleGetOTLPEndpoint(
 	}, nil
 }
 
-// Tool 2: add_otlp_port
+// add_otlp_port
 
 type AddOTLPPortInput struct {
 	Port int `json:"port" jsonschema:"Port to add (1-65535)"`
@@ -96,7 +96,7 @@ func (s *Server) handleAddOTLPPort(
 	}, nil
 }
 
-// Tool 3: remove_otlp_port
+// remove_otlp_port
 
 type RemoveOTLPPortInput struct {
 	Port int `json:"port" jsonschema:"Port to remove (1-65535)"`
@@ -139,7 +139,7 @@ func (s *Server) handleRemoveOTLPPort(
 	}, nil
 }
 
-// Tool 4: create_snapshot
+// create_snapshot
 
 type CreateSnapshotInput struct {
 	Name string `json:"name" jsonschema:"Snapshot name (e.g. 'before-deploy', 'test-start')"`
@@ -184,7 +184,7 @@ func (s *Server) handleCreateSnapshot(
 	}, nil
 }
 
-// Tool 3: query (multi-signal with optional snapshots)
+// query (multi-signal with optional snapshots)
 
 type QueryInput struct {
 	// Basic filters
@@ -285,7 +285,7 @@ func (s *Server) handleQuery(
 	}, nil
 }
 
-// Tool 4: get_snapshot_data
+// get_snapshot_data
 
 type GetSnapshotDataInput struct {
 	StartSnapshot string `json:"start_snapshot" jsonschema:"Start snapshot name"`
@@ -371,7 +371,7 @@ func (s *Server) handleGetSnapshotData(
 	}, nil
 }
 
-// Tool 5: manage_snapshots
+// manage_snapshots
 
 type ManageSnapshotsInput struct {
 	Action string `json:"action" jsonschema:"Action: 'list', 'delete', or 'clear'"`
@@ -425,7 +425,7 @@ func (s *Server) handleManageSnapshots(
 	}
 }
 
-// Tool 6: get_stats
+// get_stats
 
 type GetStatsInput struct{}
 
@@ -489,7 +489,7 @@ func (s *Server) handleGetStats(
 	}, nil
 }
 
-// Tool 7: clear_data
+// clear_data
 
 type ClearDataInput struct{}
 
@@ -509,7 +509,7 @@ func (s *Server) handleClearData(
 	}, nil
 }
 
-// Tool 10: set_file_source
+// set_file_source
 
 type SetFileSourceInput struct {
 	Directory string `json:"directory" jsonschema:"Path to directory containing OTLP JSONL files (e.g., /tank/otel). Must have traces/, logs/, and/or metrics/ subdirectories."`
@@ -572,7 +572,7 @@ func (s *Server) handleSetFileSource(
 	}, nil
 }
 
-// Tool 11: remove_file_source
+// remove_file_source
 
 type RemoveFileSourceInput struct {
 	Directory string `json:"directory" jsonschema:"Directory to stop watching"`
@@ -613,7 +613,7 @@ func (s *Server) handleRemoveFileSource(
 	}, nil
 }
 
-// Tool 12: list_file_sources
+// list_file_sources
 
 type ListFileSourcesInput struct{}
 
@@ -988,9 +988,16 @@ func metricToSummary(metric *storage.StoredMetric) MetricSummary {
 	}
 }
 
+// maxAttributeDepth limits recursion depth for nested OTLP attributes.
+const maxAttributeDepth = 10
+
 // formatAttributeValue converts an OTLP attribute value to a Go any type.
 func formatAttributeValue(value *commonpb.AnyValue) any {
-	if value == nil {
+	return formatAttributeValueDepth(value, 0)
+}
+
+func formatAttributeValueDepth(value *commonpb.AnyValue, depth int) any {
+	if value == nil || depth >= maxAttributeDepth {
 		return nil
 	}
 
@@ -1004,17 +1011,15 @@ func formatAttributeValue(value *commonpb.AnyValue) any {
 	case *commonpb.AnyValue_BoolValue:
 		return v.BoolValue
 	case *commonpb.AnyValue_ArrayValue:
-		// Convert array to slice
 		result := make([]any, len(v.ArrayValue.Values))
 		for i, val := range v.ArrayValue.Values {
-			result[i] = formatAttributeValue(val)
+			result[i] = formatAttributeValueDepth(val, depth+1)
 		}
 		return result
 	case *commonpb.AnyValue_KvlistValue:
-		// Convert key-value list to map
 		result := make(map[string]any)
 		for _, kv := range v.KvlistValue.Values {
-			result[kv.Key] = formatAttributeValue(kv.Value)
+			result[kv.Key] = formatAttributeValueDepth(kv.Value, depth+1)
 		}
 		return result
 	default:

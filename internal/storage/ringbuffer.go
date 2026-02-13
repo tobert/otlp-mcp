@@ -7,10 +7,11 @@ import "sync"
 // All operations are O(1) except GetAll() which is O(n) where n is the current size.
 type RingBuffer[T any] struct {
 	sync.RWMutex
-	items    []T
-	capacity int
-	head     int // next write position
-	size     int // current number of items
+	items        []T
+	capacity     int
+	head         int // next write position (wraps at capacity)
+	size         int // current number of items
+	totalWritten int // monotonically increasing count of all items ever added
 }
 
 // NewRingBuffer creates a new ring buffer with the specified capacity.
@@ -36,6 +37,7 @@ func (rb *RingBuffer[T]) Add(item T) {
 
 	rb.items[rb.head] = item
 	rb.head = (rb.head + 1) % rb.capacity
+	rb.totalWritten++
 
 	if rb.size < rb.capacity {
 		rb.size++
@@ -95,12 +97,12 @@ func (rb *RingBuffer[T]) Clear() {
 	defer rb.Unlock()
 	rb.size = 0
 	rb.head = 0
+	rb.totalWritten = 0
 }
 
 // GetRange returns items between start and end positions (inclusive).
-// Positions are absolute (not modulo capacity) and represent the logical
-// sequence of items added. Handles wraparound correctly.
-// Returns nil if the range is invalid or empty.
+// Positions are absolute (monotonically increasing) values from CurrentPosition.
+// Returns nil if the range is invalid, empty, or has been evicted from the buffer.
 func (rb *RingBuffer[T]) GetRange(start, end int) []T {
 	rb.RLock()
 	defer rb.RUnlock()
@@ -109,52 +111,32 @@ func (rb *RingBuffer[T]) GetRange(start, end int) []T {
 		return nil
 	}
 
-	// Calculate the absolute position of the oldest item still in buffer
-	oldestPos := rb.head - rb.size
-	if oldestPos < 0 {
-		oldestPos = 0
-	}
+	// The oldest position still in the buffer
+	oldestPos := max(rb.totalWritten-rb.size, 0)
 
-	// Clamp the range to what's actually in the buffer
-	if start < oldestPos {
-		start = oldestPos
-	}
-	if end >= rb.head {
-		end = rb.head - 1
+	// Clamp range to what's available
+	start = max(start, oldestPos)
+	if end >= rb.totalWritten {
+		end = rb.totalWritten - 1
 	}
 	if start > end {
 		return nil
 	}
 
-	// Allocate result slice
 	rangeSize := end - start + 1
-	result := make([]T, 0, rangeSize)
-
-	// Copy items from the range
-	for pos := start; pos <= end; pos++ {
-		idx := pos % rb.capacity
-		result = append(result, rb.items[idx])
+	result := make([]T, rangeSize)
+	for i := 0; i < rangeSize; i++ {
+		result[i] = rb.items[(start+i)%rb.capacity]
 	}
 
 	return result
 }
 
-// CurrentPosition returns the current write position.
-// This represents the absolute number of items that have been added to the buffer.
-// Used by snapshots to bookmark a point in time.
+// CurrentPosition returns the total number of items ever added to the buffer.
+// This is a monotonically increasing value used by snapshots to bookmark a point
+// in time. Use with GetRange to retrieve items between two positions.
 func (rb *RingBuffer[T]) CurrentPosition() int {
 	rb.RLock()
 	defer rb.RUnlock()
-
-	// Return absolute position (total items added)
-	// If size < capacity, head is the count
-	// If size == capacity, we've wrapped and need to calculate total
-	if rb.size < rb.capacity {
-		return rb.head
-	}
-
-	// Buffer is full and may have wrapped multiple times
-	// We need to track total items added, not just current head
-	// For now, return head as the position (wraps at capacity)
-	return rb.head
+	return rb.totalWritten
 }

@@ -257,6 +257,169 @@ func TestRingBufferPointers(t *testing.T) {
 	}
 }
 
+// TestRingBufferCurrentPosition verifies monotonic position tracking.
+func TestRingBufferCurrentPosition(t *testing.T) {
+	rb := NewRingBuffer[int](3)
+
+	if rb.CurrentPosition() != 0 {
+		t.Fatalf("expected position 0, got %d", rb.CurrentPosition())
+	}
+
+	rb.Add(10)
+	rb.Add(20)
+	rb.Add(30)
+	if rb.CurrentPosition() != 3 {
+		t.Fatalf("expected position 3, got %d", rb.CurrentPosition())
+	}
+
+	// Wrap the buffer
+	rb.Add(40)
+	rb.Add(50)
+	if rb.CurrentPosition() != 5 {
+		t.Fatalf("expected position 5 after wrap, got %d", rb.CurrentPosition())
+	}
+
+	// Keep wrapping
+	rb.Add(60)
+	rb.Add(70)
+	rb.Add(80)
+	if rb.CurrentPosition() != 8 {
+		t.Fatalf("expected position 8 after multiple wraps, got %d", rb.CurrentPosition())
+	}
+}
+
+// TestRingBufferGetRange tests GetRange with absolute positions.
+func TestRingBufferGetRange(t *testing.T) {
+	rb := NewRingBuffer[int](5)
+
+	// Add 5 items (positions 0-4)
+	for i := 1; i <= 5; i++ {
+		rb.Add(i * 10)
+	}
+
+	// Get all items via range
+	result := rb.GetRange(0, 4)
+	expected := []int{10, 20, 30, 40, 50}
+	if len(result) != len(expected) {
+		t.Fatalf("expected %d items, got %d", len(expected), len(result))
+	}
+	for i, v := range result {
+		if v != expected[i] {
+			t.Errorf("at %d: expected %d, got %d", i, expected[i], v)
+		}
+	}
+
+	// Get subset
+	result = rb.GetRange(2, 3)
+	expected = []int{30, 40}
+	if len(result) != len(expected) {
+		t.Fatalf("expected %d items, got %d", len(expected), len(result))
+	}
+	for i, v := range result {
+		if v != expected[i] {
+			t.Errorf("at %d: expected %d, got %d", i, expected[i], v)
+		}
+	}
+}
+
+// TestRingBufferGetRangeAfterWrap tests GetRange correctness after the buffer wraps.
+func TestRingBufferGetRangeAfterWrap(t *testing.T) {
+	rb := NewRingBuffer[int](3)
+
+	// Add 6 items to wrap twice (capacity 3)
+	for i := 1; i <= 6; i++ {
+		rb.Add(i * 10)
+	}
+
+	// Position is now 6. Buffer contains items at positions 3,4,5 (values 40,50,60)
+	if rb.CurrentPosition() != 6 {
+		t.Fatalf("expected position 6, got %d", rb.CurrentPosition())
+	}
+
+	// Get all available items
+	result := rb.GetRange(3, 5)
+	expected := []int{40, 50, 60}
+	if len(result) != len(expected) {
+		t.Fatalf("expected %d items, got %d", len(expected), len(result))
+	}
+	for i, v := range result {
+		if v != expected[i] {
+			t.Errorf("at %d: expected %d, got %d", i, expected[i], v)
+		}
+	}
+
+	// Request evicted range — should clamp to available
+	result = rb.GetRange(0, 5)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 items (clamped), got %d", len(result))
+	}
+	for i, v := range result {
+		if v != expected[i] {
+			t.Errorf("at %d: expected %d, got %d", i, expected[i], v)
+		}
+	}
+
+	// Fully evicted range — should return nil
+	result = rb.GetRange(0, 2)
+	if result != nil {
+		t.Fatalf("expected nil for fully evicted range, got %v", result)
+	}
+}
+
+// TestRingBufferSnapshotWorkflow simulates the snapshot use case:
+// take snapshot, add items, take another snapshot, get range between them.
+func TestRingBufferSnapshotWorkflow(t *testing.T) {
+	rb := NewRingBuffer[int](5)
+
+	// Add some initial data
+	for i := 1; i <= 3; i++ {
+		rb.Add(i)
+	}
+
+	// "Snapshot 1" at position 3
+	snap1 := rb.CurrentPosition()
+
+	// Add more data
+	for i := 4; i <= 7; i++ {
+		rb.Add(i)
+	}
+
+	// "Snapshot 2" at position 7
+	snap2 := rb.CurrentPosition()
+
+	// Get items between snapshots (should be 4,5,6,7)
+	result := rb.GetRange(snap1, snap2-1)
+	expected := []int{4, 5, 6, 7}
+	if len(result) != len(expected) {
+		t.Fatalf("expected %d items between snapshots, got %d", len(expected), len(result))
+	}
+	for i, v := range result {
+		if v != expected[i] {
+			t.Errorf("at %d: expected %d, got %d", i, expected[i], v)
+		}
+	}
+
+	// Add more data to wrap the buffer (capacity 5, so items 1-2 get evicted)
+	for i := 8; i <= 12; i++ {
+		rb.Add(i)
+	}
+
+	// "Snapshot 3" at position 12
+	snap3 := rb.CurrentPosition()
+
+	// Range between snap2 and snap3 should return items 8-11 (7 was at snap2)
+	result = rb.GetRange(snap2, snap3-1)
+	expected = []int{8, 9, 10, 11, 12}
+	if len(result) != len(expected) {
+		t.Fatalf("expected %d items, got %d", len(expected), len(result))
+	}
+	for i, v := range result {
+		if v != expected[i] {
+			t.Errorf("at %d: expected %d, got %d", i, expected[i], v)
+		}
+	}
+}
+
 // TestRingBufferEmpty tests operations on an empty buffer.
 func TestRingBufferEmpty(t *testing.T) {
 	rb := NewRingBuffer[int](5)

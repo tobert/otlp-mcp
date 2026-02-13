@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"time"
 
 	collectorlogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	collectormetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -15,6 +14,12 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/grpc"
 )
+
+// Config holds configuration for the OTLP receiver.
+type Config struct {
+	Host string // e.g., "127.0.0.1"
+	Port int    // 0 for ephemeral port assignment
+}
 
 // UnifiedReceiver defines the interface for receiving all OTLP signal types.
 // This is typically implemented by storage.ObservabilityStorage.
@@ -163,23 +168,13 @@ func (s *UnifiedServer) AddPort(ctx context.Context, port int) error {
 	s.listeners = append(s.listeners, listener)
 	s.grpcServers = append(s.grpcServers, grpcServer)
 
-	// Start serving on new port in background
+	// Start serving on new port in background.
+	// The listener is already bound, so it accepts connections immediately.
 	go func() {
 		_ = grpcServer.Serve(listener)
 	}()
 
-	// Health check: verify the port is actually accepting connections
-	checkAddr := listener.Addr().String()
-	for i := 0; i < 10; i++ {
-		conn, err := net.DialTimeout("tcp", checkAddr, 10*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			return nil
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-
-	return fmt.Errorf("port %s failed health check - not accepting connections after 50ms", checkAddr)
+	return nil
 }
 
 // RemovePort removes a listening port from the server.
