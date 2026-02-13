@@ -131,17 +131,19 @@ func (s *Server) AddFileSource(ctx context.Context, directory string, activeOnly
 }
 
 // RemoveFileSource stops and removes a file source.
+// The source is removed from the map under the lock, then stopped
+// outside the lock so fs.Stop cannot block other operations.
 func (s *Server) RemoveFileSource(directory string) error {
 	s.fileSourcesMu.Lock()
-	defer s.fileSourcesMu.Unlock()
-
 	fs, exists := s.fileSources[directory]
 	if !exists {
+		s.fileSourcesMu.Unlock()
 		return fmt.Errorf("directory %s is not being watched", directory)
 	}
+	delete(s.fileSources, directory)
+	s.fileSourcesMu.Unlock()
 
 	fs.Stop()
-	delete(s.fileSources, directory)
 	return nil
 }
 
@@ -170,12 +172,19 @@ func (s *Server) FileSourceStats() []filereader.Stats {
 }
 
 // stopAllFileSources stops all file sources (called on shutdown).
+// Sources are collected and the map cleared under the lock, then
+// stopped outside the lock so a slow fs.Stop (which waits on
+// goroutines) cannot block other file-source operations.
 func (s *Server) stopAllFileSources() {
 	s.fileSourcesMu.Lock()
-	defer s.fileSourcesMu.Unlock()
+	sources := make([]*filereader.FileSource, 0, len(s.fileSources))
+	for _, fs := range s.fileSources {
+		sources = append(sources, fs)
+	}
+	clear(s.fileSources)
+	s.fileSourcesMu.Unlock()
 
-	for dir, fs := range s.fileSources {
+	for _, fs := range sources {
 		fs.Stop()
-		delete(s.fileSources, dir)
 	}
 }
