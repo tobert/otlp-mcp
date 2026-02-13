@@ -99,10 +99,22 @@ func renderTrace(b *strings.Builder, traceID string, spans []SpanInfo, width int
 		tree.order = tree.order[:maxSpansPerTrace]
 	}
 
-	// Render each span
-	for i, entry := range tree.order {
-		isLast := (i == len(tree.order)-1) || (spanOverflow > 0 && i == len(tree.order)-1)
-		renderSpanRow(b, entry, minStart, totalDur, width, isLast)
+	// Pass 1: Find max length of duration + error suffix for alignment
+	maxDurErrLen := 0
+	for _, entry := range tree.order {
+		durStr := formatDuration(max(entry.span.EndNano, entry.span.StartNano) - entry.span.StartNano)
+		errLen := 0
+		if entry.span.StatusCode == "STATUS_CODE_ERROR" || entry.span.StatusCode == "ERROR" {
+			errLen = 7 // " !! ERR"
+		}
+		if len(durStr)+errLen > maxDurErrLen {
+			maxDurErrLen = len(durStr) + errLen
+		}
+	}
+
+	// Pass 2: Render each span
+	for _, entry := range tree.order {
+		renderSpanRow(b, entry, minStart, totalDur, width, maxDurErrLen)
 	}
 
 	if spanOverflow > 0 {
@@ -201,7 +213,7 @@ func walkTree(result *[]treeEntry, byID map[string]SpanInfo, children map[string
 	}
 }
 
-func renderSpanRow(b *strings.Builder, entry treeEntry, minStart, totalDur uint64, width int, _ bool) {
+func renderSpanRow(b *strings.Builder, entry treeEntry, minStart, totalDur uint64, width int, maxDurErrLen int) {
 	barWidth := defaultBarWidth
 
 	// Build tree prefix
@@ -243,8 +255,8 @@ func renderSpanRow(b *strings.Builder, entry treeEntry, minStart, totalDur uint6
 	dur := spanEnd - spanStart
 	durStr := formatDuration(dur)
 
-	// Calculate label budget: width - prefix - " [" - bar - "] " - dur - errSuffix
-	fixedWidth := len(prefixStr) + 2 + barWidth + 2 + len(durStr) + len(errSuffix)
+	// Calculate label budget: width - prefix - " [" - bar - "] " - maxDurErrLen
+	fixedWidth := len(prefixStr) + 2 + barWidth + 2 + maxDurErrLen
 	labelBudget := max(width-fixedWidth, 8)
 	if len(label) > labelBudget {
 		label = label[:labelBudget-1] + "…"
@@ -256,7 +268,11 @@ func renderSpanRow(b *strings.Builder, entry treeEntry, minStart, totalDur uint6
 	// Build timing bar
 	bar := buildBar(spanStart, spanEnd, minStart, totalDur, barWidth)
 
-	fmt.Fprintf(b, "%s%s [%s] %s%s\n", prefixStr, paddedLabel, bar, durStr, errSuffix)
+	// Pad duration area for consistent right edge
+	durErrStr := durStr + errSuffix
+	paddedDurErr := durErrStr + strings.Repeat(" ", max(0, maxDurErrLen-len(durErrStr)))
+
+	fmt.Fprintf(b, "%s%s [%s] %s\n", prefixStr, paddedLabel, bar, paddedDurErr)
 }
 
 func buildBar(startNano, endNano, minStart, totalDur uint64, barWidth int) string {
