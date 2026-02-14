@@ -216,9 +216,14 @@ func walkTree(result *[]treeEntry, byID map[string]SpanInfo, children map[string
 func renderSpanRow(b *strings.Builder, entry treeEntry, minStart, totalDur uint64, width int, maxDurErrLen int) {
 	barWidth := defaultBarWidth
 
-	// Build tree prefix
+	// Build tree prefix, tracking display width separately from byte length.
+	// Tree-drawing characters (│, ├─, └─) are multi-byte UTF-8 but each
+	// occupies a single display column.
 	var prefix strings.Builder
+	prefixCols := 0
+
 	prefix.WriteString(" ")
+	prefixCols++
 	for d := 0; d < entry.depth; d++ {
 		if d < len(entry.isLast)-1 {
 			if entry.isLast[d] {
@@ -226,6 +231,7 @@ func renderSpanRow(b *strings.Builder, entry treeEntry, minStart, totalDur uint6
 			} else {
 				prefix.WriteString("│ ")
 			}
+			prefixCols += 2
 		}
 	}
 	if entry.depth > 0 {
@@ -234,6 +240,7 @@ func renderSpanRow(b *strings.Builder, entry treeEntry, minStart, totalDur uint6
 		} else {
 			prefix.WriteString("├─ ")
 		}
+		prefixCols += 3
 	}
 
 	prefixStr := prefix.String()
@@ -255,9 +262,10 @@ func renderSpanRow(b *strings.Builder, entry treeEntry, minStart, totalDur uint6
 	dur := spanEnd - spanStart
 	durStr := formatDuration(dur)
 
-	// Calculate label budget: width - prefix - " [" - bar - "] " - maxDurErrLen
-	fixedWidth := len(prefixStr) + 2 + barWidth + 2 + maxDurErrLen
-	labelBudget := max(width-fixedWidth, 8)
+	// Calculate label budget using display columns, not byte lengths.
+	// Layout: prefix + label + " [" + bar + "] " + durErr
+	fixedCols := prefixCols + 2 + barWidth + 2 + maxDurErrLen
+	labelBudget := max(width-fixedCols, 8)
 	if len(label) > labelBudget {
 		label = label[:labelBudget-1] + "…"
 	}

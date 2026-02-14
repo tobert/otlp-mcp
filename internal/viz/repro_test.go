@@ -15,16 +15,18 @@ func TestWaterfall_Alignment(t *testing.T) {
 	if len(lines) < 3 {
 		t.Fatalf("expected at least 3 lines, got %d", len(lines))
 	}
-	
+
 	// line 0: Trace align1 (2 spans, 60.0s)
 	// line 1:  svc.root ... [###...] 60.0s
 	// line 2:  └─ svc.c1 ... [.#...] 1µs
-	
-	idx1 := strings.Index(lines[1], "[")
-	idx2 := strings.Index(lines[2], "[")
-	
-	if idx1 != idx2 {
-		t.Errorf("mismatched alignment: line 1 '[' at %d, line 2 '[' at %d", idx1, idx2)
+	//
+	// Use display column (rune count), not byte index, because tree
+	// connectors (└─) are multi-byte UTF-8 but single display column.
+	col1 := displayCol(lines[1], '[')
+	col2 := displayCol(lines[2], '[')
+
+	if col1 != col2 {
+		t.Errorf("mismatched alignment: line 1 '[' at display col %d, line 2 at %d", col1, col2)
 		t.Logf("Result:\n%s", result)
 	}
 }
