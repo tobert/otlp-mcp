@@ -72,7 +72,14 @@ func ServiceSummary(services []ServiceStats, width int) string {
 		maxNameLen = 20
 	}
 
-	barBudget := 20
+	// Bar width scales with available space: width - indent - name - separators - count
+	barBudget := width - 2 - maxNameLen - 4 - 8
+	if barBudget < 10 {
+		barBudget = 10
+	}
+	if barBudget > 40 {
+		barBudget = 40
+	}
 
 	for _, s := range services {
 		name := s.Name

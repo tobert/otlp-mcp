@@ -71,12 +71,13 @@ func renderTrace(b *strings.Builder, traceID string, spans []SpanInfo, width int
 		return spans[i].StartNano < spans[j].StartNano
 	})
 
-	// Find time bounds
+	// Find time bounds, clamping end to max(end, start) to handle bad data
 	minStart := spans[0].StartNano
-	var maxEnd uint64
+	maxEnd := minStart
 	for _, s := range spans {
-		if s.EndNano > maxEnd {
-			maxEnd = s.EndNano
+		end := max(s.EndNano, s.StartNano)
+		if end > maxEnd {
+			maxEnd = end
 		}
 	}
 	totalDur := maxEnd - minStart

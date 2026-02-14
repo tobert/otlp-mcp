@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -1098,12 +1097,11 @@ func buildActivityViz(traces []ActivityTraceSummary, errors []ActivityErrorSumma
 	return strings.Join(parts, "\n")
 }
 
-// buildVizContent creates MCP Content blocks: visualization text + JSON data.
-func buildVizContent[T any](vizText string, output T) []mcp.Content {
-	jsonBytes, _ := json.MarshalIndent(output, "", "  ")
+// buildVizContent creates MCP Content with the visualization text.
+// Structured JSON data is returned separately via the handler's output value.
+func buildVizContent[T any](vizText string, _ T) []mcp.Content {
 	return []mcp.Content{
 		&mcp.TextContent{Text: vizText},
-		&mcp.TextContent{Text: string(jsonBytes)},
 	}
 }
 
