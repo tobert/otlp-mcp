@@ -3,9 +3,11 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/tobert/otlp-mcp/internal/storage"
+	"github.com/tobert/otlp-mcp/internal/viz"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
@@ -271,7 +273,7 @@ func (s *Server) handleQuery(
 		metrics[i] = metricToSummary(metric)
 	}
 
-	return &mcp.CallToolResult{}, QueryOutput{
+	output := QueryOutput{
 		Traces:  traces,
 		Logs:    logs,
 		Metrics: metrics,
@@ -282,7 +284,14 @@ func (s *Server) handleQuery(
 			Services:    result.Summary.Services,
 			TraceIDs:    result.Summary.TraceIDs,
 		},
-	}, nil
+	}
+
+	toolResult := &mcp.CallToolResult{}
+	if vizText := buildTraceViz(traces); vizText != "" {
+		toolResult.Content = buildVizContent(vizText, output)
+	}
+
+	return toolResult, output, nil
 }
 
 // get_snapshot_data
@@ -348,7 +357,7 @@ func (s *Server) handleGetSnapshotData(
 		metrics[i] = metricToSummary(metric)
 	}
 
-	return &mcp.CallToolResult{}, GetSnapshotDataOutput{
+	output := GetSnapshotDataOutput{
 		StartSnapshot: data.StartSnapshot,
 		EndSnapshot:   data.EndSnapshot,
 		TimeRange: TimeRange{
@@ -368,7 +377,14 @@ func (s *Server) handleGetSnapshotData(
 			LogSeverities: data.Summary.LogSeverities,
 			MetricNames:   data.Summary.MetricNames,
 		},
-	}, nil
+	}
+
+	toolResult := &mcp.CallToolResult{}
+	if vizText := buildTraceViz(traces); vizText != "" {
+		toolResult.Content = buildVizContent(vizText, output)
+	}
+
+	return toolResult, output, nil
 }
 
 // manage_snapshots
@@ -465,7 +481,7 @@ func (s *Server) handleGetStats(
 ) (*mcp.CallToolResult, GetStatsOutput, error) {
 	stats := s.storage.Stats()
 
-	return &mcp.CallToolResult{}, GetStatsOutput{
+	output := GetStatsOutput{
 		Traces: StorageStats{
 			SpanCount:  stats.Traces.SpanCount,
 			Capacity:   stats.Traces.Capacity,
@@ -486,7 +502,24 @@ func (s *Server) handleGetStats(
 			TypeCounts:   stats.Metrics.TypeCounts,
 		},
 		Snapshots: stats.Snapshots,
-	}, nil
+	}
+
+	vizText := viz.StatsOverview(viz.BufferStats{
+		SpanCount:      stats.Traces.SpanCount,
+		SpanCapacity:   stats.Traces.Capacity,
+		LogCount:       stats.Logs.LogCount,
+		LogCapacity:    stats.Logs.Capacity,
+		MetricCount:    stats.Metrics.MetricCount,
+		MetricCapacity: stats.Metrics.Capacity,
+		SnapshotCount:  stats.Snapshots,
+	})
+
+	toolResult := &mcp.CallToolResult{}
+	if vizText != "" {
+		toolResult.Content = buildVizContent(vizText, output)
+	}
+
+	return toolResult, output, nil
 }
 
 // clear_data
@@ -796,7 +829,7 @@ func (s *Server) handleRecentActivity(
 		}
 	}
 
-	return &mcp.CallToolResult{}, RecentActivityOutput{
+	output := RecentActivityOutput{
 		RecentTraces: traces,
 		RecentErrors: errors,
 		Throughput: ActivityThroughput{
@@ -806,7 +839,14 @@ func (s *Server) handleRecentActivity(
 		},
 		MetricsPeek:      metricsPeek,
 		WindowDurationMs: DefaultWindowDurationMs,
-	}, nil
+	}
+
+	toolResult := &mcp.CallToolResult{}
+	if vizText := buildActivityViz(traces, errors); vizText != "" {
+		toolResult.Content = buildVizContent(vizText, output)
+	}
+
+	return toolResult, output, nil
 }
 
 // Register all tools
@@ -890,14 +930,15 @@ func (s *Server) registerTools() error {
 // ═══════════════════════════════════════════════════════════════════════════
 
 type TraceSummary struct {
-	TraceID     string         `json:"trace_id" jsonschema:"Trace ID (hex)"`
-	SpanID      string         `json:"span_id" jsonschema:"Span ID (hex)"`
-	ServiceName string         `json:"service_name" jsonschema:"Service name"`
-	SpanName    string         `json:"span_name" jsonschema:"Span operation name"`
-	StartTime   uint64         `json:"start_time_unix_nano" jsonschema:"Start time (Unix nanoseconds)"`
-	EndTime     uint64         `json:"end_time_unix_nano" jsonschema:"End time (Unix nanoseconds)"`
-	Status      string         `json:"status,omitempty" jsonschema:"Span status code"`
-	Attributes  map[string]any `json:"attributes,omitempty" jsonschema:"Span attributes"`
+	TraceID      string         `json:"trace_id" jsonschema:"Trace ID (hex)"`
+	SpanID       string         `json:"span_id" jsonschema:"Span ID (hex)"`
+	ParentSpanID string         `json:"parent_span_id,omitempty" jsonschema:"Parent span ID (hex, empty for root)"`
+	ServiceName  string         `json:"service_name" jsonschema:"Service name"`
+	SpanName     string         `json:"span_name" jsonschema:"Span operation name"`
+	StartTime    uint64         `json:"start_time_unix_nano" jsonschema:"Start time (Unix nanoseconds)"`
+	EndTime      uint64         `json:"end_time_unix_nano" jsonschema:"End time (Unix nanoseconds)"`
+	Status       string         `json:"status,omitempty" jsonschema:"Span status code"`
+	Attributes   map[string]any `json:"attributes,omitempty" jsonschema:"Span attributes"`
 }
 
 type LogSummary struct {
@@ -926,13 +967,18 @@ type MetricSummary struct {
 
 func spanToTraceSummary(span *storage.StoredSpan) TraceSummary {
 	summary := TraceSummary{
-		TraceID:     span.TraceID,
-		SpanID:      span.SpanID,
-		ServiceName: span.ServiceName,
-		SpanName:    span.SpanName,
-		StartTime:   span.Span.StartTimeUnixNano,
-		EndTime:     span.Span.EndTimeUnixNano,
-		Attributes:  make(map[string]any),
+		TraceID:      span.TraceID,
+		SpanID:       span.SpanID,
+		ParentSpanID: fmt.Sprintf("%x", span.Span.ParentSpanId),
+		ServiceName:  span.ServiceName,
+		SpanName:     span.SpanName,
+		StartTime:    span.Span.StartTimeUnixNano,
+		EndTime:      span.Span.EndTimeUnixNano,
+		Attributes:   make(map[string]any),
+	}
+	// Clear parent ID if it's all zeros (root span)
+	if summary.ParentSpanID == "" || summary.ParentSpanID == "0000000000000000" {
+		summary.ParentSpanID = ""
 	}
 
 	if span.Span.Status != nil {
@@ -985,6 +1031,77 @@ func metricToSummary(metric *storage.StoredMetric) MetricSummary {
 		Count:       metric.Count,
 		Sum:         metric.Sum,
 		DataPoints:  metric.DataPointCount,
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VIZ HELPERS - Convert tool output types to viz input types
+// ═══════════════════════════════════════════════════════════════════════════
+
+// buildTraceViz creates a waterfall visualization from TraceSummary slices.
+func buildTraceViz(traces []TraceSummary) string {
+	if len(traces) == 0 {
+		return ""
+	}
+
+	spans := make([]viz.SpanInfo, len(traces))
+	for i, t := range traces {
+		spans[i] = viz.SpanInfo{
+			TraceID:     t.TraceID,
+			SpanID:      t.SpanID,
+			ParentID:    t.ParentSpanID,
+			ServiceName: t.ServiceName,
+			SpanName:    t.SpanName,
+			StartNano:   t.StartTime,
+			EndNano:     t.EndTime,
+			StatusCode:  t.Status,
+		}
+	}
+
+	return viz.Waterfall(spans, 80)
+}
+
+// buildActivityViz creates combined recent traces + errors visualization.
+func buildActivityViz(traces []ActivityTraceSummary, errors []ActivityErrorSummary) string {
+	var parts []string
+
+	if len(traces) > 0 {
+		vizTraces := make([]viz.ActivityTrace, len(traces))
+		for i, t := range traces {
+			vizTraces[i] = viz.ActivityTrace{
+				TraceID:    t.TraceID,
+				Service:    t.Service,
+				RootSpan:   t.RootSpan,
+				Status:     t.Status,
+				DurationMs: t.DurationMs,
+				ErrorMsg:   t.ErrorMsg,
+			}
+		}
+		parts = append(parts, viz.RecentTraces(vizTraces))
+	}
+
+	if len(errors) > 0 {
+		vizErrors := make([]viz.ActivityError, len(errors))
+		for i, e := range errors {
+			vizErrors[i] = viz.ActivityError{
+				TraceID:   e.TraceID,
+				Service:   e.Service,
+				SpanName:  e.SpanName,
+				ErrorMsg:  e.ErrorMsg,
+				Timestamp: e.Timestamp,
+			}
+		}
+		parts = append(parts, viz.RecentErrors(vizErrors))
+	}
+
+	return strings.Join(parts, "\n")
+}
+
+// buildVizContent creates MCP Content with the visualization text.
+// Structured JSON data is returned separately via the handler's output value.
+func buildVizContent[T any](vizText string, _ T) []mcp.Content {
+	return []mcp.Content{
+		&mcp.TextContent{Text: vizText},
 	}
 }
 

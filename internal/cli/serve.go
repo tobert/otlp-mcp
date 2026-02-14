@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -283,29 +284,34 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 		log.Println("   - list_file_sources (show active sources)")
 	}
 
-	// 4. Load file sources from CLI flags (activeOnly=true to skip archives)
+	// 4. Collect file source directories (loaded in background after server starts)
+	var fileSourceDirs []string
 	fileSources := cmd.StringSlice("file-source")
-	for _, dir := range fileSources {
-		if err := mcpServer.AddFileSource(ctx, dir, true); err != nil {
-			log.Printf("⚠️  Failed to load file source %s: %v\n", dir, err)
-		} else {
-			log.Printf("📁 Loaded file source: %s\n", dir)
-		}
-	}
+	fileSourceDirs = append(fileSourceDirs, fileSources...)
 
-	// 5. Load file sources from otel-collector config (activeOnly=true to skip archives)
 	if useOtelConfig {
 		dirs, err := ParseOtelConfig(otelConfigPath)
 		if err != nil {
 			return fmt.Errorf("failed to parse otel config %s: %w", otelConfigPath, err)
 		}
-		for _, dir := range dirs {
-			if err := mcpServer.AddFileSource(ctx, dir, true); err != nil {
-				log.Printf("⚠️  Failed to add file source %s: %v\n", dir, err)
-			} else {
-				log.Printf("📁 Auto-discovered file source: %s\n", dir)
+		fileSourceDirs = append(fileSourceDirs, dirs...)
+	}
+
+	// 5. Load file sources in background so MCP server accepts connections immediately
+	var fileLoadWg sync.WaitGroup
+	if len(fileSourceDirs) > 0 {
+		fileLoadWg.Add(1)
+		go func() {
+			defer fileLoadWg.Done()
+			for _, dir := range fileSourceDirs {
+				if err := mcpServer.AddFileSource(ctx, dir, true); err != nil {
+					log.Printf("⚠️  Failed to load file source %s: %v\n", dir, err)
+				} else {
+					log.Printf("📁 Loaded file source: %s\n", dir)
+				}
 			}
-		}
+			log.Println("✅ Background file loading complete")
+		}()
 	}
 
 	// 6. Setup graceful shutdown on SIGINT/SIGTERM
@@ -318,6 +324,7 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 			log.Printf("📡 Received signal %v, initiating graceful shutdown...\n", sig)
 		}
 		cancel()
+		fileLoadWg.Wait() // Wait for background file loading to finish
 		if !useOtelConfig && otlpServer != nil {
 			otlpServer.Stop()
 		}

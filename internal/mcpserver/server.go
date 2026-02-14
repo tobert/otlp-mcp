@@ -114,9 +114,12 @@ func (s *Server) AddFileSource(ctx context.Context, directory string, activeOnly
 	}
 
 	fs, err := filereader.New(filereader.Config{
-		Directory:  directory,
-		Verbose:    s.verbose,
-		ActiveOnly: activeOnly,
+		Directory:      directory,
+		Verbose:        s.verbose,
+		ActiveOnly:     activeOnly,
+		SpanCapacity:   s.storage.Traces().Stats().Capacity,
+		LogCapacity:    s.storage.Logs().Stats().Capacity,
+		MetricCapacity: s.storage.Metrics().Stats().Capacity,
 	}, s.storage)
 	if err != nil {
 		return fmt.Errorf("failed to create file source: %w", err)
