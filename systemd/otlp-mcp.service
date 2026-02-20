@@ -50,6 +50,8 @@ ExecStart=%h/src/otlp-mcp/otlp-mcp serve \
     --transport http \
     --http-host 127.0.0.1 \
     --http-port 4380 \
+    --webui-host 100.83.138.103 \
+    --webui-port 4381 \
     --otel-config /etc/otelcol/config.yaml
 Restart=on-failure
 RestartSec=10

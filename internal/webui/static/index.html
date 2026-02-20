@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>otlp-mcp</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#1a1a2e;--bg2:#16213e;--bg3:#0f3460;
+  --fg:#e0e0e0;--fg2:#a0a0b0;
+  --ok:#00c853;--info:#00bcd4;--warn:#ffab00;--err:#ff1744;
+  --border:#2a2a4e;--hover:#253050;
+  --font:'JetBrains Mono','Fira Code','Cascadia Code',monospace;
+}
+html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--font);font-size:13px}
+a{color:var(--info)}
+
+/* Layout */
+#app{display:flex;flex-direction:column;height:100vh}
+
+/* Header */
+header{display:flex;align-items:center;gap:12px;padding:8px 16px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+header h1{font-size:15px;font-weight:600;color:var(--info)}
+.status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.status-dot.connected{background:var(--ok)}
+.status-dot.disconnected{background:var(--err);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.counters{display:flex;gap:12px;font-size:12px;color:var(--fg2)}
+.counters span{white-space:nowrap}
+.counters b{color:var(--fg)}
+
+/* Filter bar */
+.filters{display:flex;align-items:center;gap:8px;padding:6px 16px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.filters label{font-size:11px;color:var(--fg2)}
+.filters select,.filters input[type=text]{
+  background:var(--bg);border:1px solid var(--border);color:var(--fg);padding:3px 6px;border-radius:3px;font-family:var(--font);font-size:12px;
+}
+.filters select:focus,.filters input:focus{outline:1px solid var(--info);border-color:var(--info)}
+.severity-checks{display:flex;gap:6px;align-items:center}
+.severity-checks label{display:flex;align-items:center;gap:2px;cursor:pointer;font-size:11px}
+.severity-checks input{accent-color:var(--info)}
+.btn{
+  background:var(--bg3);border:1px solid var(--border);color:var(--fg);padding:3px 10px;border-radius:3px;cursor:pointer;font-family:var(--font);font-size:12px;
+}
+.btn:hover{background:var(--hover)}
+.btn.active{background:var(--warn);color:#000;border-color:var(--warn)}
+
+/* Tabs */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--border);flex-shrink:0}
+.tab{
+  padding:6px 20px;cursor:pointer;border-bottom:2px solid transparent;color:var(--fg2);font-size:12px;font-weight:500;
+  transition:color .15s,border-color .15s;
+}
+.tab:hover{color:var(--fg)}
+.tab.active{color:var(--info);border-bottom-color:var(--info)}
+.tab .badge{
+  display:inline-block;min-width:16px;padding:0 4px;margin-left:6px;
+  background:var(--bg3);border-radius:8px;font-size:10px;text-align:center;color:var(--fg2);
+}
+
+/* Content */
+.content{flex:1;overflow:auto;padding:0}
+.panel{display:none;height:100%}
+.panel.active{display:flex;flex-direction:column}
+
+/* Tables */
+table{width:100%;border-collapse:collapse}
+thead{position:sticky;top:0;z-index:1}
+th{
+  background:var(--bg2);padding:6px 10px;text-align:left;font-size:11px;font-weight:600;
+  color:var(--fg2);border-bottom:1px solid var(--border);white-space:nowrap;
+}
+td{padding:4px 10px;border-bottom:1px solid var(--border);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:400px}
+tr:hover{background:var(--hover)}
+
+/* Status badges */
+.s-ok{color:var(--ok)}.s-error{color:var(--err);font-weight:600}.s-unset{color:var(--fg2)}
+.sev-debug{color:#888}.sev-info{color:var(--info)}.sev-warn{color:var(--warn)}.sev-error{color:var(--err);font-weight:600}
+tr.row-error{background:rgba(255,23,68,.08)}
+
+/* Empty state */
+.empty{padding:40px;text-align:center;color:var(--fg2);font-size:14px}
+
+/* Search */
+#search{width:160px}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>otlp-mcp</h1>
+    <div class="status-dot disconnected" id="statusDot" title="Disconnected"></div>
+    <div class="counters">
+      <span>spans: <b id="cSpans">0</b></span>
+      <span>logs: <b id="cLogs">0</b></span>
+      <span>metrics: <b id="cMetrics">0</b></span>
+      <span>gen: <b id="cGen">0</b></span>
+    </div>
+    <div style="flex:1"></div>
+    <button class="btn" id="btnPause">Pause</button>
+  </header>
+
+  <div class="filters">
+    <label>Service:</label>
+    <select id="serviceFilter"><option value="">All</option></select>
+    <label id="sevLabel">Severity:</label>
+    <div class="severity-checks" id="sevChecks">
+      <label><input type="checkbox" value="DEBUG" checked>DEBUG</label>
+      <label><input type="checkbox" value="INFO" checked>INFO</label>
+      <label><input type="checkbox" value="WARN" checked>WARN</label>
+      <label><input type="checkbox" value="ERROR" checked>ERROR</label>
+    </div>
+    <label>Search:</label>
+    <input type="text" id="search" placeholder="filter rows...">
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="traces">Traces <span class="badge" id="bTraces">0</span></div>
+    <div class="tab" data-tab="logs">Logs <span class="badge" id="bLogs">0</span></div>
+    <div class="tab" data-tab="metrics">Metrics <span class="badge" id="bMetrics">0</span></div>
+  </div>
+
+  <div class="content">
+    <div class="panel active" id="pTraces">
+      <table><thead><tr>
+        <th>Time</th><th>Trace ID</th><th>Service</th><th>Span</th><th>Duration</th><th>Status</th>
+      </tr></thead><tbody id="tTraces"></tbody></table>
+    </div>
+    <div class="panel" id="pLogs">
+      <table><thead><tr>
+        <th>Time</th><th>Service</th><th>Severity</th><th>Body</th>
+      </tr></thead><tbody id="tLogs"></tbody></table>
+    </div>
+    <div class="panel" id="pMetrics">
+      <table><thead><tr>
+        <th>Name</th><th>Type</th><th>Service</th><th>Value</th><th>Updated</th>
+      </tr></thead><tbody id="tMetrics"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+const MAX_ROWS = 500;
+let ws = null;
+let paused = false;
+let activeTab = 'traces';
+let traceCount = 0, logCount = 0, metricCount = 0;
+
+// DOM refs
+const $ = id => document.getElementById(id);
+const statusDot = $('statusDot');
+const cSpans = $('cSpans'), cLogs = $('cLogs'), cMetrics = $('cMetrics'), cGen = $('cGen');
+const bTraces = $('bTraces'), bLogs = $('bLogs'), bMetrics = $('bMetrics');
+const tTraces = $('tTraces'), tLogs = $('tLogs'), tMetrics = $('tMetrics');
+const serviceFilter = $('serviceFilter');
+const searchInput = $('search');
+const btnPause = $('btnPause');
+const sevChecks = $('sevChecks');
+const sevLabel = $('sevLabel');
+
+// Tabs
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    const target = tab.dataset.tab;
+    document.getElementById('p' + target.charAt(0).toUpperCase() + target.slice(1)).classList.add('active');
+    activeTab = target;
+    // Show/hide severity filter
+    const showSev = target === 'logs';
+    sevChecks.style.display = showSev ? 'flex' : 'none';
+    sevLabel.style.display = showSev ? '' : 'none';
+    applyClientFilter();
+  });
+});
+
+// Pause
+btnPause.addEventListener('click', () => {
+  paused = !paused;
+  btnPause.textContent = paused ? 'Resume' : 'Pause';
+  btnPause.classList.toggle('active', paused);
+  sendFilter();
+});
+
+// Service filter change
+serviceFilter.addEventListener('change', () => sendFilter());
+
+// Severity checkboxes
+sevChecks.addEventListener('change', () => applyClientFilter());
+
+// Search
+searchInput.addEventListener('input', () => applyClientFilter());
+
+// Initially hide severity (traces tab is default)
+sevChecks.style.display = 'none';
+sevLabel.style.display = 'none';
+
+function sendFilter() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({
+    service: serviceFilter.value,
+    severity: '', // severity filtering done client-side for multi-select
+    paused: paused
+  }));
+}
+
+function applyClientFilter() {
+  const search = searchInput.value.toLowerCase();
+  const checkedSev = new Set();
+  sevChecks.querySelectorAll('input:checked').forEach(cb => checkedSev.add(cb.value));
+
+  // Filter traces
+  tTraces.querySelectorAll('tr').forEach(row => {
+    const text = row.textContent.toLowerCase();
+    row.style.display = text.includes(search) ? '' : 'none';
+  });
+
+  // Filter logs (severity + search)
+  tLogs.querySelectorAll('tr').forEach(row => {
+    const sev = row.dataset.severity || '';
+    const text = row.textContent.toLowerCase();
+    const sevMatch = checkedSev.has(sev);
+    const searchMatch = text.includes(search);
+    row.style.display = (sevMatch && searchMatch) ? '' : 'none';
+  });
+
+  // Filter metrics
+  tMetrics.querySelectorAll('tr').forEach(row => {
+    const text = row.textContent.toLowerCase();
+    row.style.display = text.includes(search) ? '' : 'none';
+  });
+}
+
+function trimTable(tbody, max) {
+  while (tbody.children.length > max) {
+    tbody.removeChild(tbody.lastChild);
+  }
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function statusClass(s) {
+  if (s === 'OK') return 's-ok';
+  if (s === 'ERROR') return 's-error';
+  return 's-unset';
+}
+
+function sevClass(s) {
+  const sl = (s||'').toUpperCase();
+  if (sl === 'DEBUG' || sl === 'TRACE') return 'sev-debug';
+  if (sl === 'INFO') return 'sev-info';
+  if (sl.startsWith('WARN')) return 'sev-warn';
+  if (sl === 'ERROR' || sl === 'FATAL') return 'sev-error';
+  return '';
+}
+
+function fmtDuration(ms) {
+  if (ms >= 1000) return (ms/1000).toFixed(2) + 's';
+  if (ms >= 1) return ms.toFixed(1) + 'ms';
+  return (ms * 1000).toFixed(0) + 'us';
+}
+
+function shortTraceID(id) {
+  if (!id) return '';
+  return id.length > 8 ? id.slice(0,8) + '...' : id;
+}
+
+function handleMessage(msg) {
+  const data = JSON.parse(msg.data);
+
+  // Update counters
+  cSpans.textContent = data.counters.spans;
+  cLogs.textContent = data.counters.logs;
+  cMetrics.textContent = data.counters.metrics;
+  cGen.textContent = data.generation;
+
+  // Append traces
+  if (data.traces && data.traces.length > 0) {
+    const frag = document.createDocumentFragment();
+    for (let i = data.traces.length - 1; i >= 0; i--) {
+      const t = data.traces[i];
+      const tr = document.createElement('tr');
+      if (t.status === 'ERROR') tr.classList.add('row-error');
+      tr.innerHTML =
+        '<td>' + esc(t.time) + '</td>' +
+        '<td title="' + esc(t.trace_id) + '">' + esc(shortTraceID(t.trace_id)) + '</td>' +
+        '<td>' + esc(t.service) + '</td>' +
+        '<td>' + esc(t.span_name) + '</td>' +
+        '<td>' + fmtDuration(t.duration_ms) + '</td>' +
+        '<td class="' + statusClass(t.status) + '">' + esc(t.status) + '</td>';
+      frag.appendChild(tr);
+    }
+    tTraces.insertBefore(frag, tTraces.firstChild);
+    traceCount += data.traces.length;
+    trimTable(tTraces, MAX_ROWS);
+  }
+
+  // Append logs
+  if (data.logs && data.logs.length > 0) {
+    const frag = document.createDocumentFragment();
+    for (let i = data.logs.length - 1; i >= 0; i--) {
+      const l = data.logs[i];
+      const tr = document.createElement('tr');
+      tr.dataset.severity = (l.severity||'').toUpperCase();
+      if (tr.dataset.severity === 'ERROR') tr.classList.add('row-error');
+      tr.innerHTML =
+        '<td>' + esc(l.time) + '</td>' +
+        '<td>' + esc(l.service) + '</td>' +
+        '<td class="' + sevClass(l.severity) + '">' + esc(l.severity) + '</td>' +
+        '<td>' + esc(l.body) + '</td>';
+      frag.appendChild(tr);
+    }
+    tLogs.insertBefore(frag, tLogs.firstChild);
+    logCount += data.logs.length;
+    trimTable(tLogs, MAX_ROWS);
+  }
+
+  // Append metrics
+  if (data.metrics && data.metrics.length > 0) {
+    const frag = document.createDocumentFragment();
+    for (let i = data.metrics.length - 1; i >= 0; i--) {
+      const m = data.metrics[i];
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + esc(m.name) + '</td>' +
+        '<td>' + esc(m.type) + '</td>' +
+        '<td>' + esc(m.service) + '</td>' +
+        '<td>' + esc(m.value) + '</td>' +
+        '<td>' + esc(m.updated) + '</td>';
+      frag.appendChild(tr);
+    }
+    tMetrics.insertBefore(frag, tMetrics.firstChild);
+    metricCount += data.metrics.length;
+    trimTable(tMetrics, MAX_ROWS);
+  }
+
+  bTraces.textContent = traceCount;
+  bLogs.textContent = logCount;
+  bMetrics.textContent = metricCount;
+
+  applyClientFilter();
+}
+
+// Refresh service list
+function refreshServices() {
+  fetch('/api/services')
+    .then(r => r.json())
+    .then(services => {
+      const current = serviceFilter.value;
+      // Clear all but first option
+      while (serviceFilter.options.length > 1) serviceFilter.remove(1);
+      (services || []).forEach(svc => {
+        const opt = document.createElement('option');
+        opt.value = svc;
+        opt.textContent = svc;
+        serviceFilter.appendChild(opt);
+      });
+      serviceFilter.value = current;
+    })
+    .catch(() => {});
+}
+refreshServices();
+setInterval(refreshServices, 10000);
+
+// WebSocket connection with auto-reconnect
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + '/ws');
+
+  ws.onopen = () => {
+    statusDot.className = 'status-dot connected';
+    statusDot.title = 'Connected';
+    sendFilter();
+  };
+
+  ws.onmessage = handleMessage;
+
+  ws.onclose = () => {
+    statusDot.className = 'status-dot disconnected';
+    statusDot.title = 'Disconnected - reconnecting...';
+    setTimeout(connect, 2000);
+  };
+
+  ws.onerror = () => {
+    ws.close();
+  };
+}
+
+connect();
+
+})();
+</script>
+</body>
+</html>

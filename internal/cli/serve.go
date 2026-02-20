@@ -17,6 +17,7 @@ import (
 	"github.com/tobert/otlp-mcp/internal/mcpserver"
 	"github.com/tobert/otlp-mcp/internal/otlpreceiver"
 	"github.com/tobert/otlp-mcp/internal/storage"
+	"github.com/tobert/otlp-mcp/internal/webui"
 	"github.com/urfave/cli/v3"
 )
 
@@ -106,6 +107,17 @@ Examples:
 				Name:  "stateless",
 				Usage: "Run HTTP transport in stateless mode (no session persistence)",
 			},
+			// Web UI flags
+			&cli.IntFlag{
+				Name:  "webui-port",
+				Usage: "Serve web UI on a separate port (0 = same port as HTTP transport, required for stdio)",
+				Value: -1,
+			},
+			&cli.StringFlag{
+				Name:  "webui-host",
+				Usage: "Web UI bind address (default: 127.0.0.1)",
+				Value: "",
+			},
 			// Otel collector integration
 			&cli.StringFlag{
 				Name:  "otel-config",
@@ -164,6 +176,14 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 	}
 	if cmd.IsSet("stateless") {
 		cfg.Stateless = cmd.Bool("stateless")
+	}
+
+	// Apply Web UI flag overrides
+	if webuiPort := cmd.Int("webui-port"); webuiPort >= 0 {
+		cfg.WebUIPort = webuiPort
+	}
+	if webuiHost := cmd.String("webui-host"); webuiHost != "" {
+		cfg.WebUIHost = webuiHost
 	}
 
 	if cfg.Verbose {
@@ -341,9 +361,24 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 		log.Printf("🌐 MCP server starting on http://%s:%d/mcp\n", cfg.HTTPHost, cfg.HTTPPort)
 		log.Println("💡 Use MCP tools to query traces and get the OTLP endpoint")
 		log.Println("💡 If programs need a specific port, use add_otlp_port to listen on it")
+
+		// Start web UI
+		webuiServer := webui.New(obsStorage)
+		if cfg.WebUIPort != 0 {
+			// Separate port for web UI
+			webuiAddr := fmt.Sprintf("%s:%d", cfg.WebUIHost, cfg.WebUIPort)
+			log.Printf("🖥  Web UI: http://%s/ui/\n", webuiAddr)
+			go func() {
+				if err := webuiServer.ListenAndServe(ctx, webuiAddr); err != nil {
+					log.Printf("⚠️  Web UI server error: %v\n", err)
+				}
+			}()
+		} else {
+			log.Printf("🖥  Web UI: http://%s:%d/ui/\n", cfg.HTTPHost, cfg.HTTPPort)
+		}
 		log.Println()
 
-		if err := runHTTPTransport(ctx, cfg, mcpServer, otlpErrChan); err != nil {
+		if err := runHTTPTransport(ctx, cfg, mcpServer, webuiServer, otlpErrChan); err != nil {
 			return err
 		}
 
@@ -351,6 +386,18 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 		log.Println("🎯 MCP server ready on stdio")
 		log.Println("💡 Use MCP tools to query traces and get the OTLP endpoint")
 		log.Println("💡 If programs need a specific port, use add_otlp_port to listen on it")
+
+		// In stdio mode, web UI requires an explicit port
+		if cfg.WebUIPort != 0 {
+			webuiServer := webui.New(obsStorage)
+			webuiAddr := fmt.Sprintf("%s:%d", cfg.WebUIHost, cfg.WebUIPort)
+			log.Printf("🖥  Web UI: http://%s/ui/\n", webuiAddr)
+			go func() {
+				if err := webuiServer.ListenAndServe(ctx, webuiAddr); err != nil {
+					log.Printf("⚠️  Web UI server error: %v\n", err)
+				}
+			}()
+		}
 		log.Println()
 
 		if err := mcpServer.Run(ctx); err != nil {
@@ -374,7 +421,8 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 
 // runHTTPTransport starts the MCP server using Streamable HTTP transport.
 // It creates an HTTP server with origin validation and graceful shutdown.
-func runHTTPTransport(ctx context.Context, cfg *Config, mcpServer *mcpserver.Server, otlpErrChan chan error) error {
+// If webuiServer is non-nil and WebUIPort == 0, web UI routes are registered on the same mux.
+func runHTTPTransport(ctx context.Context, cfg *Config, mcpServer *mcpserver.Server, webuiServer *webui.Server, otlpErrChan chan error) error {
 	// Parse session timeout
 	sessionTimeout, err := time.ParseDuration(cfg.SessionTimeout)
 	if err != nil {
@@ -397,6 +445,11 @@ func runHTTPTransport(ctx context.Context, cfg *Config, mcpServer *mcpserver.Ser
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", originValidationMiddleware(cfg.AllowedOrigins, handler))
 	mux.Handle("/mcp/", originValidationMiddleware(cfg.AllowedOrigins, handler))
+
+	// Register web UI routes on the same mux when no separate port is configured
+	if webuiServer != nil && cfg.WebUIPort == 0 {
+		webuiServer.RegisterRoutes(mux)
+	}
 
 	// Create HTTP server with proper timeouts
 	server := &http.Server{
