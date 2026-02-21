@@ -363,7 +363,7 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 		log.Println("💡 If programs need a specific port, use add_otlp_port to listen on it")
 
 		// Start web UI
-		webuiServer := webui.New(obsStorage)
+		webuiServer := webui.New(obsStorage, cfg.AllowedOrigins)
 		if cfg.WebUIPort != 0 {
 			// Separate port for web UI
 			webuiAddr := fmt.Sprintf("%s:%d", cfg.WebUIHost, cfg.WebUIPort)
@@ -389,7 +389,7 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 
 		// In stdio mode, web UI requires an explicit port
 		if cfg.WebUIPort != 0 {
-			webuiServer := webui.New(obsStorage)
+			webuiServer := webui.New(obsStorage, cfg.AllowedOrigins)
 			webuiAddr := fmt.Sprintf("%s:%d", cfg.WebUIHost, cfg.WebUIPort)
 			log.Printf("🖥  Web UI: http://%s/ui/\n", webuiAddr)
 			go func() {
