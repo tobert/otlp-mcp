@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -164,12 +165,17 @@ type wsCounters struct {
 }
 
 type wsSpanSummary struct {
-	Time       string  `json:"time"`
-	TraceID    string  `json:"trace_id"`
-	Service    string  `json:"service"`
-	SpanName   string  `json:"span_name"`
-	DurationMs float64 `json:"duration_ms"`
-	Status     string  `json:"status"`
+	Time         string  `json:"time"`
+	TraceID      string  `json:"trace_id"`
+	SpanID       string  `json:"span_id"`
+	ParentSpanID string  `json:"parent_span_id,omitempty"`
+	Service      string  `json:"service"`
+	SpanName     string  `json:"span_name"`
+	Kind         string  `json:"kind"`
+	DurationMs   float64 `json:"duration_ms"`
+	Status       string  `json:"status"`
+	StartNs      uint64  `json:"start_ns"`
+	EndNs        uint64  `json:"end_ns"`
 }
 
 type wsLogSummary struct {
@@ -302,13 +308,24 @@ func (s *Server) sendWSUpdate(ctx context.Context, conn *websocket.Conn,
 					status = "ERROR"
 				}
 			}
+			parentSpanID := ""
+			if len(span.Span.ParentSpanId) > 0 {
+				parentSpanID = fmt.Sprintf("%x", span.Span.ParentSpanId)
+			}
+			kind := strings.TrimPrefix(span.Span.Kind.String(), "SPAN_KIND_")
+
 			update.Traces = append(update.Traces, wsSpanSummary{
-				Time:       formatNanoTime(span.Span.StartTimeUnixNano),
-				TraceID:    span.TraceID,
-				Service:    span.ServiceName,
-				SpanName:   span.SpanName,
-				DurationMs: float64(durationNs) / 1e6,
-				Status:     status,
+				Time:         formatNanoTime(span.Span.StartTimeUnixNano),
+				TraceID:      span.TraceID,
+				SpanID:       span.SpanID,
+				ParentSpanID: parentSpanID,
+				Service:      span.ServiceName,
+				SpanName:     span.SpanName,
+				Kind:         kind,
+				DurationMs:   float64(durationNs) / 1e6,
+				Status:       status,
+				StartNs:      span.Span.StartTimeUnixNano,
+				EndNs:        span.Span.EndTimeUnixNano,
 			})
 		}
 		*lastTracePos = curTracePos
