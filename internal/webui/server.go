@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -20,12 +21,35 @@ var staticFiles embed.FS
 
 // Server serves the embedded web UI and WebSocket updates.
 type Server struct {
-	storage *storage.ObservabilityStorage
+	storage        *storage.ObservabilityStorage
+	originPatterns []string // host patterns for websocket.AcceptOptions.OriginPatterns
 }
 
 // New creates a new web UI server.
-func New(s *storage.ObservabilityStorage) *Server {
-	return &Server{storage: s}
+// allowedOrigins are URI patterns like "http://localhost:*"; schemes are stripped
+// for the websocket library which matches on host only.
+func New(s *storage.ObservabilityStorage, allowedOrigins []string) *Server {
+	patterns := buildOriginPatterns(allowedOrigins)
+	return &Server{storage: s, originPatterns: patterns}
+}
+
+// buildOriginPatterns converts config-style origins (e.g. "http://localhost:*")
+// to host-only patterns (e.g. "localhost:*") for coder/websocket.
+// If no origins are provided, defaults to localhost-only.
+func buildOriginPatterns(origins []string) []string {
+	if len(origins) == 0 {
+		return []string{"localhost:*", "127.0.0.1:*"}
+	}
+	patterns := make([]string, 0, len(origins))
+	for _, o := range origins {
+		if u, err := url.Parse(o); err == nil && u.Host != "" {
+			patterns = append(patterns, u.Host)
+		} else {
+			// Already a bare host pattern or unparseable — pass through
+			patterns = append(patterns, o)
+		}
+	}
+	return patterns
 }
 
 // RegisterRoutes attaches web UI routes to an existing ServeMux.
@@ -135,7 +159,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	result, err := s.storage.Query(filter)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Printf("webui: query error: %v", err)
+		http.Error(w, "invalid query parameters", http.StatusBadRequest)
 		return
 	}
 
@@ -196,12 +221,13 @@ type wsMetricSummary struct {
 // handleWebSocket upgrades to WebSocket and streams real-time updates.
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true, // Allow any origin for localhost dev
+		OriginPatterns: s.originPatterns,
 	})
 	if err != nil {
 		return
 	}
 	defer conn.CloseNow()
+	conn.SetReadLimit(4096)
 
 	ctx := r.Context()
 

@@ -197,7 +197,7 @@ const LOG_ROLLUP_CAP = 200;
 let ws = null;
 let paused = false;
 let activeTab = 'traces';
-let logCount = 0, metricCount = 0;
+let logCount = 0;
 
 // Trace data model: Map<traceId, TraceInfo>
 const traceMap = new Map();
@@ -205,6 +205,9 @@ const rollupElements = new Map(); // fingerprint -> DOM element
 
 // Log rollup: key -> { tr, count, lastTime, service, severity, body }
 const logRollup = new Map();
+
+// Metric dedup: name -> { tr, lastUpdated }
+const metricRows = new Map();
 
 // DOM refs
 const $ = id => document.getElementById(id);
@@ -258,11 +261,11 @@ sevLabel.style.display = 'none';
 
 function sendFilter() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({
+  try { ws.send(JSON.stringify({
     service: serviceFilter.value,
     severity: '',
     paused: paused
-  }));
+  })); } catch {}
 }
 
 function applyClientFilter() {
@@ -277,10 +280,13 @@ function applyClientFilter() {
   });
 
   // Filter logs (severity + search)
+  // Fold TRACE into DEBUG checkbox, FATAL into ERROR checkbox
   tLogs.querySelectorAll('tr').forEach(row => {
     const sev = row.dataset.severity || '';
     const text = row.textContent.toLowerCase();
-    const sevMatch = checkedSev.has(sev);
+    const sevMatch = checkedSev.has(sev) ||
+      (sev === 'TRACE' && checkedSev.has('DEBUG')) ||
+      (sev === 'FATAL' && checkedSev.has('ERROR'));
     const searchMatch = text.includes(search);
     row.style.display = (sevMatch && searchMatch) ? '' : 'none';
   });
@@ -292,9 +298,10 @@ function applyClientFilter() {
   });
 }
 
-function trimTable(tbody, max) {
-  while (tbody.children.length > max) {
-    tbody.removeChild(tbody.lastChild);
+let filterRAF = 0;
+function scheduleFilter() {
+  if (!filterRAF) {
+    filterRAF = requestAnimationFrame(() => { filterRAF = 0; applyClientFilter(); });
   }
 }
 
@@ -410,6 +417,15 @@ function getServiceOrder(trace) {
     if (earliest) roots.push(earliest);
   }
 
+  // Build child lookup for O(n) BFS instead of O(n^2)
+  const childrenOf = new Map();
+  for (const span of spanById.values()) {
+    if (span.parent_span_id) {
+      if (!childrenOf.has(span.parent_span_id)) childrenOf.set(span.parent_span_id, []);
+      childrenOf.get(span.parent_span_id).push(span);
+    }
+  }
+
   // BFS
   const queue = [...roots];
   while (queue.length > 0) {
@@ -418,12 +434,8 @@ function getServiceOrder(trace) {
       seen.add(span.service);
       order.push(span.service);
     }
-    // Find children
-    for (const child of spanById.values()) {
-      if (child.parent_span_id === span.span_id) {
-        queue.push(child);
-      }
-    }
+    const children = childrenOf.get(span.span_id) || [];
+    queue.push(...children);
   }
 
   // Append orphan services
@@ -488,7 +500,7 @@ function renderMiniWaterfallSvg(trace) {
 
   const VW = 1000; // viewBox width
   const VH = 16;   // viewBox height
-  const MAX_ROWS = 4;
+  const MAX_MINI_ROWS = 4;
 
   // Assign colors by service order
   const serviceOrder = getServiceOrder(trace);
@@ -507,17 +519,17 @@ function renderMiniWaterfallSvg(trace) {
     if (w < 2) w = 2; // minimum visible width
 
     let row = -1;
-    for (let r = 0; r < rowEnds.length && r < MAX_ROWS; r++) {
+    for (let r = 0; r < rowEnds.length && r < MAX_MINI_ROWS; r++) {
       if (rowEnds[r] <= x) { row = r; break; }
     }
     if (row === -1) {
-      if (rowEnds.length < MAX_ROWS) {
+      if (rowEnds.length < MAX_MINI_ROWS) {
         row = rowEnds.length;
         rowEnds.push(0);
       } else {
         // Overflow: pack into row with earliest end
         row = 0;
-        for (let r = 1; r < MAX_ROWS; r++) {
+        for (let r = 1; r < MAX_MINI_ROWS; r++) {
           if (rowEnds[r] < rowEnds[row]) row = r;
         }
       }
@@ -526,7 +538,7 @@ function renderMiniWaterfallSvg(trace) {
     assignments.push({ span, x, w, row });
   }
 
-  const numRows = Math.min(rowEnds.length, MAX_ROWS);
+  const numRows = Math.min(rowEnds.length, MAX_MINI_ROWS);
   const barH = Math.max(1, Math.floor((VH - (numRows - 1)) / numRows));
   const gap = numRows > 1 ? Math.max(1, Math.floor((VH - numRows * barH) / (numRows - 1))) : 0;
 
@@ -836,14 +848,16 @@ function sortAndRenderTraceCards() {
   // Track active rollup fingerprints this render
   const activeRollups = new Set();
 
+  // Build desired element order
+  const desired = [];
   for (const item of items) {
     if (item.k === 'i') {
       renderTraceCard(item.t);
-      traceCards.appendChild(item.t.element);
+      desired.push(item.t.element);
     } else {
       activeRollups.add(item.fp);
       renderRollupCard(item.fp, item.traces);
-      traceCards.appendChild(rollupElements.get(item.fp));
+      desired.push(rollupElements.get(item.fp));
       // Detach individual elements for rolled-up traces
       for (const t of item.traces) {
         if (t.element && t.element.parentNode) t.element.parentNode.removeChild(t.element);
@@ -856,13 +870,25 @@ function sortAndRenderTraceCards() {
     if (!activeRollups.has(fp) && el.parentNode) el.parentNode.removeChild(el);
   }
 
+  // Reconcile DOM: only move elements whose position changed
+  const currentChildren = traceCards.children;
+  let insertIdx = 0;
+  for (const el of desired) {
+    if (currentChildren[insertIdx] !== el) {
+      // appendChild moves existing nodes; use insertBefore for precise placement
+      traceCards.insertBefore(el, currentChildren[insertIdx] || null);
+    }
+    insertIdx++;
+  }
+
   bTraces.textContent = traceMap.size;
 }
 
 // ---- End trace card system ----
 
 function handleMessage(msg) {
-  const data = JSON.parse(msg.data);
+  let data;
+  try { data = JSON.parse(msg.data); } catch { return; }
 
   // Update counters
   cSpans.textContent = data.counters.spans;
@@ -882,6 +908,7 @@ function handleMessage(msg) {
   // Append logs with rollup
   if (data.logs && data.logs.length > 0) {
     for (const l of data.logs) {
+      logCount++;
       const key = (l.service || '') + '|' + ((l.severity||'').toUpperCase()) + '|' + (l.body || '');
       const sev = (l.severity||'').toUpperCase();
 
@@ -906,7 +933,7 @@ function handleMessage(msg) {
         // New unique log
         const tr = document.createElement('tr');
         tr.dataset.severity = sev;
-        if (sev === 'ERROR') tr.classList.add('row-error');
+        if (sev === 'ERROR' || sev === 'FATAL') tr.classList.add('row-error');
         tr.innerHTML =
           '<td>' + esc(l.time) + '</td>' +
           '<td>' + esc(l.service) + '</td>' +
@@ -914,7 +941,6 @@ function handleMessage(msg) {
           '<td>' + esc(l.body) + '</td>';
         tLogs.insertBefore(tr, tLogs.firstChild);
         logRollup.set(key, { tr, count: 1, lastTime: l.time, service: l.service, severity: sev, body: l.body });
-        logCount++;
 
         // Evict oldest if over LRU cap
         if (logRollup.size > LOG_ROLLUP_CAP) {
@@ -927,29 +953,53 @@ function handleMessage(msg) {
     }
   }
 
-  // Append metrics
+  // Upsert metrics (one row per unique name)
   if (data.metrics && data.metrics.length > 0) {
-    const frag = document.createDocumentFragment();
-    for (let i = data.metrics.length - 1; i >= 0; i--) {
-      const m = data.metrics[i];
-      const tr = document.createElement('tr');
-      tr.innerHTML =
-        '<td>' + esc(m.name) + '</td>' +
-        '<td>' + esc(m.type) + '</td>' +
-        '<td>' + esc(m.service) + '</td>' +
-        '<td>' + esc(m.value) + '</td>' +
-        '<td>' + esc(m.updated) + '</td>';
-      frag.appendChild(tr);
+    for (const m of data.metrics) {
+      const key = m.name;
+      if (metricRows.has(key)) {
+        // Update existing row in place
+        const entry = metricRows.get(key);
+        const cells = entry.tr.children;
+        cells[1].textContent = m.type;
+        cells[2].textContent = m.service;
+        cells[3].textContent = m.value;
+        cells[4].textContent = m.updated;
+        entry.lastUpdated = Date.now();
+        // Move to top
+        tMetrics.insertBefore(entry.tr, tMetrics.firstChild);
+      } else {
+        // New metric
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td>' + esc(m.name) + '</td>' +
+          '<td>' + esc(m.type) + '</td>' +
+          '<td>' + esc(m.service) + '</td>' +
+          '<td>' + esc(m.value) + '</td>' +
+          '<td>' + esc(m.updated) + '</td>';
+        tMetrics.insertBefore(tr, tMetrics.firstChild);
+        metricRows.set(key, { tr, lastUpdated: Date.now() });
+
+        // Evict least-recently-updated if over limit
+        if (metricRows.size > MAX_ROWS) {
+          let oldestKey = null, oldestTime = Infinity;
+          for (const [k, v] of metricRows) {
+            if (v.lastUpdated < oldestTime) { oldestTime = v.lastUpdated; oldestKey = k; }
+          }
+          if (oldestKey) {
+            const old = metricRows.get(oldestKey);
+            if (old.tr.parentNode) old.tr.parentNode.removeChild(old.tr);
+            metricRows.delete(oldestKey);
+          }
+        }
+      }
     }
-    tMetrics.insertBefore(frag, tMetrics.firstChild);
-    metricCount += data.metrics.length;
-    trimTable(tMetrics, MAX_ROWS);
   }
 
   bLogs.textContent = logCount;
-  bMetrics.textContent = metricCount;
+  bMetrics.textContent = metricRows.size;
 
-  applyClientFilter();
+  scheduleFilter();
 }
 
 // Refresh service list
