@@ -35,6 +35,11 @@ type ActivityCache struct {
 	metricPeekMu   sync.RWMutex
 	metricPeekData map[string]*MetricPeek
 
+	// Subscriber notification for real-time streaming (e.g. WebSocket)
+	subscriberMu     sync.Mutex
+	subscribers      map[uint64]chan struct{}
+	nextSubscriberID uint64
+
 	// Start time for uptime calculation
 	startTime time.Time
 }
@@ -95,7 +100,44 @@ func NewActivityCache() *ActivityCache {
 		traceIDToKey:     make(map[string]string),
 		traceInsertOrder: make([]string, 0, DefaultRecentTracesCapacity),
 		metricPeekData:   make(map[string]*MetricPeek),
+		subscribers:      make(map[uint64]chan struct{}),
 		startTime:        time.Now(),
+	}
+}
+
+// Subscribe returns a notification channel and an unsubscribe function.
+// The channel receives a signal (non-blocking) whenever new telemetry arrives.
+// The channel is buffered with capacity 1 to coalesce rapid updates.
+func (h *ActivityCache) Subscribe() (<-chan struct{}, func()) {
+	h.subscriberMu.Lock()
+	defer h.subscriberMu.Unlock()
+
+	id := h.nextSubscriberID
+	h.nextSubscriberID++
+
+	ch := make(chan struct{}, 1)
+	h.subscribers[id] = ch
+
+	unsubscribe := func() {
+		h.subscriberMu.Lock()
+		defer h.subscriberMu.Unlock()
+		delete(h.subscribers, id)
+	}
+
+	return ch, unsubscribe
+}
+
+// notifySubscribers sends a non-blocking signal to all subscriber channels.
+func (h *ActivityCache) notifySubscribers() {
+	h.subscriberMu.Lock()
+	defer h.subscriberMu.Unlock()
+
+	for _, ch := range h.subscribers {
+		select {
+		case ch <- struct{}{}:
+		default:
+			// Channel already has a pending notification; skip to coalesce.
+		}
 	}
 }
 
@@ -120,6 +162,8 @@ func (h *ActivityCache) RecordSpan(span *StoredSpan) {
 
 	// Track trace-level info
 	h.updateTraceEntry(span)
+
+	h.notifySubscribers()
 }
 
 // updateTraceEntry updates or creates a trace entry.
@@ -254,6 +298,7 @@ func (h *ActivityCache) evictOldestTraces() {
 func (h *ActivityCache) RecordLog() {
 	h.logsReceived.Add(1)
 	h.generation.Add(1)
+	h.notifySubscribers()
 }
 
 // RecordMetric records a metric for activity tracking.
@@ -263,6 +308,8 @@ func (h *ActivityCache) RecordMetric(stored *StoredMetric) {
 
 	// Update metric peek cache
 	h.updateMetricPeek(stored)
+
+	h.notifySubscribers()
 }
 
 // updateMetricPeek updates the peek cache for a metric.

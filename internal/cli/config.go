@@ -30,6 +30,10 @@ type Config struct {
 	SessionTimeout string   `json:"session_timeout,omitempty"` // Session idle timeout (e.g., "30m")
 	Stateless      bool     `json:"stateless,omitempty"`       // Run HTTP transport in stateless mode
 
+	// Web UI configuration
+	WebUIPort int    `json:"webui_port,omitempty"` // 0 = use same port as HTTP (default)
+	WebUIHost string `json:"webui_host,omitempty"` // default: 127.0.0.1
+
 	// Logging configuration
 	Verbose bool `json:"verbose,omitempty"`
 }
@@ -54,6 +58,8 @@ func DefaultConfig() *Config {
 		AllowedOrigins:   []string{"http://localhost:*", "http://127.0.0.1:*"},
 		SessionTimeout:   "30m",
 		Stateless:        false,
+		WebUIPort:        0,
+		WebUIHost:        "127.0.0.1",
 		Verbose:          false,
 	}
 }
@@ -175,6 +181,14 @@ func MergeConfigs(base, overlay *Config) *Config {
 	}
 	if overlay.Stateless {
 		merged.Stateless = overlay.Stateless
+	}
+
+	// Merge Web UI settings
+	if overlay.WebUIPort > 0 {
+		merged.WebUIPort = overlay.WebUIPort
+	}
+	if overlay.WebUIHost != "" {
+		merged.WebUIHost = overlay.WebUIHost
 	}
 
 	return &merged
