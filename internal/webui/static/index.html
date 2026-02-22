@@ -7,10 +7,10 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#1a1a2e;--bg2:#16213e;--bg3:#0f3460;
-  --fg:#e0e0e0;--fg2:#a0a0b0;
-  --ok:#00c853;--info:#00bcd4;--warn:#ffab00;--err:#ff1744;
-  --border:#2a2a4e;--hover:#253050;
+  --bg:#0d1017;--bg2:#11131c;--bg3:#1a1e30;
+  --fg:#a9b1d6;--fg2:#565f89;
+  --ok:#9ece6a;--info:#7aa2f7;--warn:#e0af68;--err:#f7768e;
+  --border:#1e2030;--hover:#1a1e33;
   --font:'JetBrains Mono','Fira Code','Cascadia Code',monospace;
 }
 html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--font);font-size:13px}
@@ -76,8 +76,8 @@ tr:hover{background:var(--hover)}
 
 /* Status badges */
 .s-ok{color:var(--ok)}.s-error{color:var(--err);font-weight:600}.s-unset{color:var(--fg2)}
-.sev-debug{color:#888}.sev-info{color:var(--info)}.sev-warn{color:var(--warn)}.sev-error{color:var(--err);font-weight:600}
-tr.row-error{background:rgba(255,23,68,.08)}
+.sev-debug{color:#444b6a}.sev-info{color:var(--info)}.sev-warn{color:var(--warn)}.sev-error{color:var(--err);font-weight:600}
+tr.row-error{background:rgba(247,118,142,.06)}
 
 /* Empty state */
 .empty{padding:40px;text-align:center;color:var(--fg2);font-size:14px}
@@ -492,7 +492,7 @@ function renderRollupCard(fp, traces) {
 }
 
 // Service color palette for mini waterfall
-const SVC_COLORS = ['#00bcd4','#7c4dff','#ff6d00','#00e676','#ff4081','#40c4ff','#ffab00','#69f0ae'];
+const SVC_COLORS = ['#7aa2f7','#bb9af7','#ff9e64','#9ece6a','#f7768e','#7dcfff','#e0af68','#73daca'];
 
 function renderMiniWaterfallSvg(trace) {
   const range = trace.maxEndNs - trace.minStartNs;
@@ -545,7 +545,7 @@ function renderMiniWaterfallSvg(trace) {
   let rects = '';
   for (const { span, x, w, row } of assignments) {
     const y = row * (barH + gap);
-    const color = span.status === 'ERROR' ? '#ff1744' : (svcColor.get(span.service) || '#00bcd4');
+    const color = span.status === 'ERROR' ? '#f7768e' : (svcColor.get(span.service) || '#7aa2f7');
     rects += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + barH + '" fill="' + color + '" rx="1"/>';
   }
 
@@ -749,7 +749,7 @@ function renderSwimlane(trace) {
     const y = rowY(rowIdx);
     const cx = laneX(span.service);
     const isError = span.status === 'ERROR';
-    const color = isError ? '#ff1744' : (svcColor.get(span.service) || '#00bcd4');
+    const color = isError ? '#f7768e' : (svcColor.get(span.service) || '#7aa2f7');
 
     // Bar width proportional to duration, minimum visible width
     const spanDur = (span.end_ns || span.start_ns) - (span.start_ns || 0);
