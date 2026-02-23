@@ -1,0 +1,17 @@
+.git
+.github
+*.md
+LICENSE
+.DS_Store
+.idea
+.vscode
+dist/
+systemd/
+test/
+*.test
+*.out
+coverage.*
+.otlp-mcp.json
+.otlp-mcp.json.example
+.claude
+.gemini

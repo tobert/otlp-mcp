@@ -3,8 +3,8 @@ package viz
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestWaterfall_DumpVisual(t *testing.T) {
