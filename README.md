@@ -147,6 +147,23 @@ You should get back something like:
 
 ✅ You're ready! See [Workflow Examples](#workflow-examples) to start using it.
 
+### Docker
+
+For HTTP/protobuf support or containerized deployment, an all-in-one Docker
+image bundles otlp-mcp with an OpenTelemetry Collector proxy:
+
+```bash
+make build   # Build image
+make run     # Start container
+```
+
+Exposes three ports:
+- **4317** — OTLP gRPC (direct to otlp-mcp)
+- **4318** — OTLP HTTP/protobuf (via OTel Collector)
+- **9912** — MCP HTTP API
+
+See [README-docker.md](README-docker.md) for full details.
+
 ## MCP Tools
 
 The server provides 11 tools for observability:

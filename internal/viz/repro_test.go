@@ -7,7 +7,7 @@ import (
 
 func TestWaterfall_Alignment(t *testing.T) {
 	spans := []SpanInfo{
-		{TraceID: "align1", SpanID: "root", ServiceName: "svc", SpanName: "root", StartNano: 0, EndNano: 60_000_000_000}, // 60.0s (5 chars)
+		{TraceID: "align1", SpanID: "root", ServiceName: "svc", SpanName: "root", StartNano: 0, EndNano: 60_000_000_000},                      // 60.0s (5 chars)
 		{TraceID: "align1", SpanID: "c1", ParentID: "root", ServiceName: "svc", SpanName: "c1", StartNano: 100_000_000, EndNano: 100_001_000}, // 1µs (3 chars)
 	}
 	result := Waterfall(spans, 80)
