@@ -8,6 +8,12 @@ if [ "${STATELESS}" = "1" ]; then
   STATELESS_FLAG="--stateless"
 fi
 
+CONFIG_FLAG=""
+CONFIG_PATH="/etc/otlp-mcp/config.json"
+if [ -f "${CONFIG_PATH}" ]; then
+  CONFIG_FLAG="--config ${CONFIG_PATH}"
+fi
+
 cleanup() {
   echo "Shutting down..."
   kill "$OTLP_MCP_PID" 2>/dev/null || true
@@ -25,6 +31,7 @@ otlp-mcp serve \
   --otlp-host 0.0.0.0 \
   --otlp-port "${OTLP_PORT}" \
   --verbose \
+  ${CONFIG_FLAG} \
   ${STATELESS_FLAG} &
 OTLP_MCP_PID=$!
 

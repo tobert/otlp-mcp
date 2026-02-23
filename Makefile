@@ -7,6 +7,10 @@ OTLP_PORT ?= 4317
 HOST_ADDRESS := host.docker.internal
 HOST_IPV4 := 192.168.65.254
 
+# Config file (mount into container if present)
+CONFIG_FILE ?= .otlp-mcp.json
+CONFIG_MOUNT := $(if $(wildcard $(CONFIG_FILE)),-v "$(PWD)/$(CONFIG_FILE)":/etc/otlp-mcp/config.json,)
+
 # Images
 OTEL_IMAGE := otel/opentelemetry-collector:0.146.1
 IMAGE_NAME := otlp-mcp
@@ -54,6 +58,7 @@ run: ## Run all-in-one container (proxy + otlp-mcp)
 		-e MCP_PORT=$(MCP_PORT) \
 		-e OTLP_PORT=$(OTLP_PORT) \
 		$(if $(STATELESS),-e STATELESS=1,) \
+		$(CONFIG_MOUNT) \
 		$(IMAGE_NAME)
 
 run-bg: ## Run all-in-one container in background
@@ -69,6 +74,7 @@ run-bg: ## Run all-in-one container in background
 		-e MCP_PORT=$(MCP_PORT) \
 		-e OTLP_PORT=$(OTLP_PORT) \
 		$(if $(STATELESS),-e STATELESS=1,) \
+		$(CONFIG_MOUNT) \
 		$(IMAGE_NAME)
 
 serve: ## Start otlp-mcp server (host, no Docker)
