@@ -28,16 +28,18 @@ func ServeCommand() *cli.Command {
 		Name:  "serve",
 		Usage: "Start the OTLP receiver and MCP server",
 		Description: `Starts an OTLP gRPC receiver on localhost:0 (ephemeral port) and an
-MCP server on stdio (default) or HTTP.
+MCP server on stdio (default), HTTP, or SSH.
 
 Transport modes:
   stdio  - MCP over stdin/stdout (default, for agent spawned processes)
   http   - MCP over Streamable HTTP at /mcp (for persistent services)
+  ssh    - MCP over SSH with key-based auth (for remote access)
 
 Examples:
   otlp-mcp serve                        # stdio mode (default)
   otlp-mcp serve --transport http       # HTTP mode on port 4380
-  otlp-mcp serve --transport http --http-port 8080`,
+  otlp-mcp serve --transport ssh        # SSH mode on port 2222
+  otlp-mcp serve --transport ssh --ssh-authorized-keys ~/.ssh/authorized_keys`,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "config",
@@ -106,6 +108,27 @@ Examples:
 			&cli.BoolFlag{
 				Name:  "stateless",
 				Usage: "Run HTTP transport in stateless mode (no session persistence)",
+			},
+			// SSH transport flags
+			&cli.StringFlag{
+				Name:  "ssh-host",
+				Usage: "SSH server bind address (when transport=ssh)",
+				Value: "",
+			},
+			&cli.IntFlag{
+				Name:  "ssh-port",
+				Usage: "SSH server port (when transport=ssh, default 2222)",
+				Value: -1,
+			},
+			&cli.StringFlag{
+				Name:  "ssh-host-key",
+				Usage: "Path to SSH host key file (generated if missing)",
+				Value: "",
+			},
+			&cli.StringFlag{
+				Name:  "ssh-authorized-keys",
+				Usage: "Path to authorized keys file for SSH transport",
+				Value: "",
 			},
 			// Web UI flags
 			&cli.IntFlag{
@@ -176,6 +199,20 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 	}
 	if cmd.IsSet("stateless") {
 		cfg.Stateless = cmd.Bool("stateless")
+	}
+
+	// Apply SSH transport flag overrides
+	if sshHost := cmd.String("ssh-host"); sshHost != "" {
+		cfg.SSHHost = sshHost
+	}
+	if sshPort := cmd.Int("ssh-port"); sshPort > 0 {
+		cfg.SSHPort = sshPort
+	}
+	if sshHostKey := cmd.String("ssh-host-key"); sshHostKey != "" {
+		cfg.SSHHostKeyFile = sshHostKey
+	}
+	if sshAuthKeys := cmd.String("ssh-authorized-keys"); sshAuthKeys != "" {
+		cfg.SSHAuthorizedKeys = sshAuthKeys
 	}
 
 	// Apply Web UI flag overrides
@@ -423,8 +460,33 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 			return fmt.Errorf("MCP server error: %w", err)
 		}
 
+	case "ssh":
+		log.Printf("🔐 MCP server starting on ssh://%s:%d\n", cfg.SSHHost, cfg.SSHPort)
+		log.Println("💡 Use MCP tools to query traces and get the OTLP endpoint")
+
+		// In SSH mode, web UI requires an explicit port
+		if cfg.WebUIPort != 0 {
+			if cfg.WebUIHost != "127.0.0.1" && cfg.WebUIHost != "::1" && cfg.WebUIHost != "localhost" && cfg.WebUIHost != "" {
+				log.Printf("⚠️  WARNING: WebUI binding to %s - this server has NO AUTHENTICATION!\n", cfg.WebUIHost)
+				log.Println("⚠️  Only bind to localhost (127.0.0.1) unless you understand the security implications.")
+			}
+			webuiServer := webui.New(obsStorage, cfg.AllowedOrigins)
+			webuiAddr := fmt.Sprintf("%s:%d", cfg.WebUIHost, cfg.WebUIPort)
+			log.Printf("🖥  Web UI: http://%s/ui/\n", webuiAddr)
+			go func() {
+				if err := webuiServer.ListenAndServe(ctx, webuiAddr); err != nil {
+					log.Printf("⚠️  Web UI server error: %v\n", err)
+				}
+			}()
+		}
+		log.Println()
+
+		if err := runSSHTransport(ctx, cfg, mcpServer, otlpErrChan); err != nil {
+			return err
+		}
+
 	default:
-		return fmt.Errorf("unknown transport: %s (use 'stdio' or 'http')", cfg.Transport)
+		return fmt.Errorf("unknown transport: %s (use 'stdio', 'http', or 'ssh')", cfg.Transport)
 	}
 
 	return nil

@@ -30,6 +30,12 @@ type Config struct {
 	SessionTimeout string   `json:"session_timeout,omitempty"` // Session idle timeout (e.g., "30m")
 	Stateless      bool     `json:"stateless,omitempty"`       // Run HTTP transport in stateless mode
 
+	// SSH transport configuration
+	SSHHost           string `json:"ssh_host,omitempty"`            // SSH server bind address
+	SSHPort           int    `json:"ssh_port,omitempty"`            // SSH server port (default 2222)
+	SSHHostKeyFile    string `json:"ssh_host_key_file,omitempty"`   // Path to host key (generated if missing)
+	SSHAuthorizedKeys string `json:"ssh_authorized_keys,omitempty"` // Path to authorized keys file
+
 	// Web UI configuration
 	WebUIPort int    `json:"webui_port,omitempty"` // 0 = use same port as HTTP (default)
 	WebUIHost string `json:"webui_host,omitempty"` // default: 127.0.0.1
@@ -58,6 +64,8 @@ func DefaultConfig() *Config {
 		AllowedOrigins:   []string{"http://localhost:*", "http://127.0.0.1:*"},
 		SessionTimeout:   "30m",
 		Stateless:        false,
+		SSHHost:          "0.0.0.0",
+		SSHPort:          2222,
 		WebUIPort:        0,
 		WebUIHost:        "127.0.0.1",
 		Verbose:          false,
@@ -181,6 +189,20 @@ func MergeConfigs(base, overlay *Config) *Config {
 	}
 	if overlay.Stateless {
 		merged.Stateless = overlay.Stateless
+	}
+
+	// Merge SSH transport settings
+	if overlay.SSHHost != "" {
+		merged.SSHHost = overlay.SSHHost
+	}
+	if overlay.SSHPort > 0 {
+		merged.SSHPort = overlay.SSHPort
+	}
+	if overlay.SSHHostKeyFile != "" {
+		merged.SSHHostKeyFile = overlay.SSHHostKeyFile
+	}
+	if overlay.SSHAuthorizedKeys != "" {
+		merged.SSHAuthorizedKeys = overlay.SSHAuthorizedKeys
 	}
 
 	// Merge Web UI settings
