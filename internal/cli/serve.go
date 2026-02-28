@@ -345,6 +345,7 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 		}
 		cancel()
 		fileLoadWg.Wait() // Wait for background file loading to finish
+		obsStorage.ActivityCache().Close()
 		if !useOtelConfig && otlpServer != nil {
 			otlpServer.Stop()
 		}
@@ -361,6 +362,12 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 		log.Printf("🌐 MCP server starting on http://%s:%d/mcp\n", cfg.HTTPHost, cfg.HTTPPort)
 		log.Println("💡 Use MCP tools to query traces and get the OTLP endpoint")
 		log.Println("💡 If programs need a specific port, use add_otlp_port to listen on it")
+
+		// Warn if WebUI is binding to non-localhost address
+		if cfg.WebUIHost != "127.0.0.1" && cfg.WebUIHost != "::1" && cfg.WebUIHost != "localhost" && cfg.WebUIHost != "" {
+			log.Printf("⚠️  WARNING: WebUI binding to %s - this server has NO AUTHENTICATION!\n", cfg.WebUIHost)
+			log.Println("⚠️  Only bind to localhost (127.0.0.1) unless you understand the security implications.")
+		}
 
 		// Start web UI
 		webuiServer := webui.New(obsStorage, cfg.AllowedOrigins)
@@ -389,6 +396,10 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 
 		// In stdio mode, web UI requires an explicit port
 		if cfg.WebUIPort != 0 {
+			if cfg.WebUIHost != "127.0.0.1" && cfg.WebUIHost != "::1" && cfg.WebUIHost != "localhost" && cfg.WebUIHost != "" {
+				log.Printf("⚠️  WARNING: WebUI binding to %s - this server has NO AUTHENTICATION!\n", cfg.WebUIHost)
+				log.Println("⚠️  Only bind to localhost (127.0.0.1) unless you understand the security implications.")
+			}
 			webuiServer := webui.New(obsStorage, cfg.AllowedOrigins)
 			webuiAddr := fmt.Sprintf("%s:%d", cfg.WebUIHost, cfg.WebUIPort)
 			log.Printf("🖥  Web UI: http://%s/ui/\n", webuiAddr)

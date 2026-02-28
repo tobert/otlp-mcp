@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/coder/websocket"
 	"github.com/tobert/otlp-mcp/internal/storage"
@@ -52,13 +53,23 @@ func buildOriginPatterns(origins []string) []string {
 	return patterns
 }
 
+// securityHeaders wraps a handler to set security response headers.
+func securityHeaders(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Content-Security-Policy", "default-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:")
+		next(w, r)
+	}
+}
+
 // RegisterRoutes attaches web UI routes to an existing ServeMux.
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /ui/", s.handleUI)
-	mux.HandleFunc("GET /ui", s.handleUIRedirect)
-	mux.HandleFunc("GET /api/services", s.handleServices)
-	mux.HandleFunc("GET /api/status", s.handleStatus)
-	mux.HandleFunc("GET /api/query", s.handleQuery)
+	mux.HandleFunc("GET /ui/", securityHeaders(s.handleUI))
+	mux.HandleFunc("GET /ui", securityHeaders(s.handleUIRedirect))
+	mux.HandleFunc("GET /api/services", securityHeaders(s.handleServices))
+	mux.HandleFunc("GET /api/status", securityHeaders(s.handleStatus))
+	mux.HandleFunc("GET /api/query", securityHeaders(s.handleQuery))
 	mux.HandleFunc("GET /ws", s.handleWebSocket)
 }
 
@@ -321,6 +332,9 @@ func (s *Server) sendWSUpdate(ctx context.Context, conn *websocket.Conn,
 	if curTracePos > *lastTracePos {
 		spans := s.storage.Traces().GetRange(*lastTracePos, curTracePos-1)
 		for _, span := range spans {
+			if span.Span == nil {
+				continue
+			}
 			if filter.Service != "" && span.ServiceName != filter.Service {
 				continue
 			}
@@ -368,8 +382,8 @@ func (s *Server) sendWSUpdate(ctx context.Context, conn *websocket.Conn,
 				continue
 			}
 			body := l.Body
-			if len(body) > 500 {
-				body = body[:500] + "..."
+			if utf8.RuneCountInString(body) > 500 {
+				body = string([]rune(body)[:500]) + "..."
 			}
 			update.Logs = append(update.Logs, wsLogSummary{
 				Time:     formatNanoTime(l.Timestamp),

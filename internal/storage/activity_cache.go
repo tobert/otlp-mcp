@@ -431,6 +431,18 @@ func (h *ActivityCache) PeekMetrics(names []string) []*MetricPeek {
 	return result
 }
 
+// Close shuts down the activity cache by closing all subscriber channels.
+// After Close, no further notifications will be sent.
+func (h *ActivityCache) Close() {
+	h.subscriberMu.Lock()
+	defer h.subscriberMu.Unlock()
+
+	for id, ch := range h.subscribers {
+		close(ch)
+		delete(h.subscribers, id)
+	}
+}
+
 // Clear resets all activity cache data.
 func (h *ActivityCache) Clear() {
 	h.spansReceived.Store(0)

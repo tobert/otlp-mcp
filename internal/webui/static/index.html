@@ -1017,17 +1017,21 @@ function refreshServices() {
       });
       serviceFilter.value = current;
     })
-    .catch(() => {});
+    .catch(err => console.warn('Failed to refresh services:', err));
 }
 refreshServices();
 setInterval(refreshServices, 10000);
 
-// WebSocket connection with auto-reconnect
+// WebSocket connection with exponential backoff reconnect
+let reconnectDelay = 1000;
+const RECONNECT_MAX = 30000;
+
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(proto + '//' + location.host + '/ws');
 
   ws.onopen = () => {
+    reconnectDelay = 1000; // Reset backoff on successful connection
     statusDot.className = 'status-dot connected';
     statusDot.title = 'Connected';
     sendFilter();
@@ -1037,7 +1041,7 @@ function connect() {
 
   ws.onclose = () => {
     statusDot.className = 'status-dot disconnected';
-    statusDot.title = 'Disconnected - reconnecting...';
+    statusDot.title = 'Disconnected - reconnecting in ' + Math.round(reconnectDelay/1000) + 's...';
     // Clear trace state on disconnect to avoid stale mixing with backfill
     traceMap.clear();
     rollupElements.clear();
@@ -1045,7 +1049,8 @@ function connect() {
     logRollup.clear();
     tLogs.innerHTML = '';
     logCount = 0;
-    setTimeout(connect, 2000);
+    setTimeout(connect, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX);
   };
 
   ws.onerror = () => {
