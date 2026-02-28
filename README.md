@@ -147,6 +147,23 @@ You should get back something like:
 
 ✅ You're ready! See [Workflow Examples](#workflow-examples) to start using it.
 
+### Docker
+
+For HTTP/protobuf support or containerized deployment, an all-in-one Docker
+image bundles otlp-mcp with an OpenTelemetry Collector proxy:
+
+```bash
+make build   # Build image
+make run     # Start container
+```
+
+Exposes three ports:
+- **4317** — OTLP gRPC (direct to otlp-mcp)
+- **4318** — OTLP HTTP/protobuf (via OTel Collector)
+- **9912** — MCP HTTP API
+
+See [README-docker.md](README-docker.md) for full details.
+
 ## MCP Tools
 
 The server provides 11 tools for observability:
@@ -323,30 +340,25 @@ otlp-mcp supports JSON configuration files for project-specific settings.
 3. Global config file
 4. Built-in defaults
 
-**Example Configuration (`.otlp-mcp.json`):**
+To get started, copy the example and customize:
 
-```json
-{
-  "comment": "Configuration for my-service development",
-  "otlp_port": 4317,
-  "otlp_host": "127.0.0.1",
-  "trace_buffer_size": 20000,
-  "log_buffer_size": 100000,
-  "metric_buffer_size": 200000,
-  "verbose": false
-}
+```bash
+cp .otlp-mcp.json.example .otlp-mcp.json
 ```
 
-**Available Settings:**
-- `comment` - Documentation string (ignored by application)
-- `otlp_port` - OTLP server port (0 for ephemeral)
-- `otlp_host` - OTLP server bind address
-- `trace_buffer_size` - Number of spans to buffer
-- `log_buffer_size` - Number of log records to buffer
-- `metric_buffer_size` - Number of metric points to buffer
-- `verbose` - Enable verbose logging
+**Available Settings (with defaults):**
 
-See `.otlp-mcp.json.example` for a complete example.
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `comment` | | Documentation string (ignored by application) |
+| `otlp_port` | `0` (ephemeral) | OTLP server port |
+| `otlp_host` | `127.0.0.1` | OTLP server bind address |
+| `trace_buffer_size` | `10000` | Number of spans to buffer |
+| `log_buffer_size` | `50000` | Number of log records to buffer |
+| `metric_buffer_size` | `100000` | Number of metric points to buffer |
+| `verbose` | `false` | Enable verbose logging |
+
+See [`.otlp-mcp.json.example`](.otlp-mcp.json.example) for a ready-to-use template.
 
 ### Command-Line Options
 
