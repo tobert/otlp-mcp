@@ -492,10 +492,37 @@ func runServe(cliCtx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
+// startWebUI starts the Web UI server in the background if configured.
+func startWebUI(ctx context.Context, cfg *Config, obsStorage *storage.ObservabilityStorage) *webui.Server {
+	if cfg.WebUIPort == 0 && cfg.Transport != "http" {
+		// No separate port and not using HTTP transport - cannot start Web UI
+		return nil
+	}
+
+	webuiServer := webui.New(obsStorage, cfg.AllowedOrigins)
+	if cfg.WebUIPort != 0 {
+		// Separate port for web UI
+		webuiAddr := fmt.Sprintf("%s:%d", cfg.WebUIHost, cfg.WebUIPort)
+		log.Printf("🖥  Web UI: http://%s/ui/\n", webuiAddr)
+		go func() {
+			if err := webuiServer.ListenAndServe(ctx, webuiAddr); err != nil {
+				log.Printf("⚠️  Web UI server error: %v\n", err)
+			}
+		}()
+	} else if cfg.Transport == "http" {
+		log.Printf("🖥  Web UI: http://%s:%d/ui/\n", cfg.HTTPHost, cfg.HTTPPort)
+	}
+
+	return webuiServer
+}
+
 // runHTTPTransport starts the MCP server using Streamable HTTP transport.
 // It creates an HTTP server with origin validation and graceful shutdown.
 // If webuiServer is non-nil and WebUIPort == 0, web UI routes are registered on the same mux.
 func runHTTPTransport(ctx context.Context, cfg *Config, mcpServer *mcpserver.Server, webuiServer *webui.Server, otlpErrChan chan error) error {
+	// Ensure file sources are stopped on exit
+	defer mcpServer.Shutdown()
+
 	// Parse session timeout
 	sessionTimeout, err := time.ParseDuration(cfg.SessionTimeout)
 	if err != nil {

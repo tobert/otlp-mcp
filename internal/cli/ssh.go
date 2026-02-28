@@ -16,6 +16,9 @@ import (
 // It loads or generates a host key, parses authorized keys, installs
 // authorization middleware, and starts the SSH handler.
 func runSSHTransport(ctx context.Context, cfg *Config, mcpServer *mcpserver.Server, otlpErrChan chan error) error {
+	// Ensure file sources are stopped on exit
+	defer mcpServer.Shutdown()
+
 	// 1. Load or generate host key.
 	hostKeyPath := cfg.SSHHostKeyFile
 	if hostKeyPath == "" {
@@ -71,7 +74,6 @@ func runSSHTransport(ctx context.Context, cfg *Config, mcpServer *mcpserver.Serv
 	// 6. Wait for shutdown or errors.
 	select {
 	case <-ctx.Done():
-		mcpServer.Shutdown()
 		return handler.Close()
 
 	case err := <-sshErrChan:
