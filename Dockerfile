@@ -17,7 +17,7 @@ COPY --from=otelcol /otelcol /usr/local/bin/otelcol
 COPY otel-config.yaml /etc/otel/config.yaml
 COPY entrypoint.sh /entrypoint.sh
 
-RUN addgroup -S otlp && adduser -S otlp -G otlp
+RUN addgroup -g 4317 -S otlp && adduser -u 4317 -S otlp -G otlp
 USER otlp
 
 ENV MCP_PORT=9912

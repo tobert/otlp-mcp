@@ -12,7 +12,7 @@ COPY ${TARGETPLATFORM}/otlp-mcp /usr/local/bin/otlp-mcp
 COPY otel-config.yaml /etc/otel/config.yaml
 COPY entrypoint.sh /entrypoint.sh
 
-RUN addgroup -S otlp && adduser -S otlp -G otlp
+RUN addgroup -g 4317 -S otlp && adduser -u 4317 -S otlp -G otlp
 
 USER otlp
 
