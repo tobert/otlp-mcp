@@ -13,6 +13,10 @@ RUN addgroup -g 4317 -S otlp && adduser -u 4317 -S otlp -G otlp
 # Final image — no RUN, so --platform works without qemu.
 FROM alpine:3.21
 
+LABEL org.opencontainers.image.source="https://github.com/tobert/otlp-mcp"
+LABEL org.opencontainers.image.description="OTLP MCP server for AI agent observability"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+
 ARG TARGETPLATFORM
 
 COPY --from=usersetup /etc/passwd /etc/passwd
