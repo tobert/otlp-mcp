@@ -65,12 +65,21 @@ cp "$CONTEXT/linux-amd64" "$CONTEXT/linux/amd64/otlp-mcp"
 cp "$CONTEXT/linux-arm64" "$CONTEXT/linux/arm64/otlp-mcp"
 
 # Step 3: Build per-arch images.
-echo "==> Building container images..."
+# BUILDPLATFORM tells the Dockerfile which arch can run RUN natively.
+BUILD_ARCH="$(uname -m)"
+case "$BUILD_ARCH" in
+  x86_64)  BUILD_PLAT="linux/amd64" ;;
+  aarch64) BUILD_PLAT="linux/arm64" ;;
+  *)       BUILD_PLAT="linux/amd64" ;;
+esac
+
+echo "==> Building container images (build platform: ${BUILD_PLAT})..."
 for PLAT in $PLATFORMS; do
   ARCH_TAG="${TAG}-$(echo "$PLAT" | tr '/' '-')"
   echo "    ${REGISTRY}:${ARCH_TAG}"
   $CTR build \
     --platform "$PLAT" \
+    --build-arg "BUILDPLATFORM=$BUILD_PLAT" \
     --build-arg "TARGETPLATFORM=$PLAT" \
     -f "$CONTEXT/Dockerfile" \
     -t "${REGISTRY}:${ARCH_TAG}" \
