@@ -15,7 +15,7 @@ Guidance for agents working with this codebase.
 
 ```
 otlp-mcp/
-├── cmd/otlp-mcp/           # Binary entry point
+├── cmd/otlp-mcp/           # Binary entry point (version injected via ldflags)
 ├── internal/
 │   ├── cli/                # CLI and config
 │   ├── otlpreceiver/       # OTLP gRPC receiver
@@ -24,6 +24,7 @@ otlp-mcp/
 │   ├── storage/            # Ring buffers + snapshots
 │   ├── filereader/         # JSONL file source
 │   └── mcpserver/          # MCP server + tools
+├── release/                # GoReleaser Dockerfile (multi-arch)
 ├── systemd/                # Systemd user unit
 └── test/                   # E2E tests
 ```
@@ -35,6 +36,7 @@ go build -o otlp-mcp ./cmd/otlp-mcp  # Build
 go test ./...                         # Test
 go fmt ./...                          # Format
 go vet ./...                          # Lint
+make release-snapshot                 # Local goreleaser build (binaries + packages)
 ```
 
 ## Architecture

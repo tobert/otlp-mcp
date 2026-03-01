@@ -18,9 +18,13 @@ gRPC clients bypass the OTel Collector entirely and talk to otlp-mcp directly.
 
 ## Quick Start
 
-### All-in-one (recommended)
+### Pre-built image
 
-Single container running both the OTel Collector and otlp-mcp:
+```bash
+docker run --rm -p 4317:4317 -p 4318:4318 -p 9912:9912 ghcr.io/tobert/otlp-mcp:latest
+```
+
+### Build locally
 
 ```bash
 make build   # Build the image
@@ -54,6 +58,7 @@ $ make help
   fmt          Format Go source files
   vet          Run Go vet linter
   build        Build all-in-one Docker image (proxy + otlp-mcp)
+  release-snapshot  Build release artifacts locally (no push, no tag)
   run          Run all-in-one container (proxy + otlp-mcp)
   run-bg       Run all-in-one container in background
   serve        Start otlp-mcp server (host, no Docker)
@@ -84,6 +89,21 @@ make fmt
 make vet
 make build-local
 ```
+
+## Loading Existing Telemetry
+
+Mount an OpenTelemetry Collector [file exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/fileexporter) directory at `/logs` to load existing data on startup:
+
+```bash
+docker run --rm \
+  -p 4317:4317 -p 4318:4318 -p 9912:9912 \
+  -v /tank/otel:/logs:ro \
+  ghcr.io/tobert/otlp-mcp:latest
+```
+
+The directory should contain `traces/`, `logs/`, and/or `metrics/` subdirectories
+with JSONL files. Only the active (non-rotated) file is loaded by default.
+The file source continues watching for new data while the container runs.
 
 ## Configuration
 
@@ -132,9 +152,11 @@ When no config file is mounted, otlp-mcp uses its built-in defaults (10K traces,
 | File | Purpose |
 |------|---------|
 | `Dockerfile` | Multi-stage build: otlp-mcp from local source + OTel Collector |
+| `release/Dockerfile` | GoReleaser release image (pre-built binary, multi-arch) |
 | `entrypoint.sh` | Starts both processes with signal handling |
 | `otel-config.yaml` | OTel Collector config: HTTP/protobuf receiver → gRPC exporter |
 | `Makefile` | Build, run, and development commands |
+| `.goreleaser.yml` | Multi-arch release config (binaries, packages, Docker) |
 | `.dockerignore` | Excludes unnecessary files from the Docker build context |
 
 ## Notes

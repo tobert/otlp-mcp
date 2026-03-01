@@ -56,7 +56,7 @@ If you're helping a user with OpenTelemetry-instrumented code, this MCP server e
 
 ## Status
 
-✅ **Production Ready** - Full implementation complete with 11 MCP tools:
+✅ **Production Ready** - Full implementation complete with 14 MCP tools:
 - **Unified OTLP endpoint** - Single port accepts traces, logs, and metrics
 - **Dynamic port management** - Add/remove listening ports without restart
 - **Snapshot-based temporal queries** - Compare before/after states
@@ -78,14 +78,16 @@ This feedback loop enables agents to debug and optimize code based on actual run
 ## Architecture
 
 ```
-Agent (stdio) ←→ MCP Server ←→ Ring Buffer ←→ OTLP gRPC Server ←→ Your Programs
+Agent ←→ MCP Server ←→ Ring Buffer ←→ OTLP gRPC Server ←→ Your Programs
+                          ↑
+                     File Sources (optional, e.g. otelcol file exporter)
 ```
 
-**MVP Scope:**
 - Single binary: `otlp-mcp` (defaults to serve)
-- OTLP receiver: gRPC on localhost (ephemeral port)
-- MCP server: stdio transport
-- Storage: In-memory ring buffers (traces, logs, metrics)
+- OTLP receiver: gRPC on localhost (ephemeral or fixed port)
+- MCP server: stdio or HTTP transport
+- Storage: In-memory ring buffers (10K traces, 50K logs, 100K metrics)
+- File sources: load existing OTLP JSONL from otel-collector exports
 - Localhost only, no authentication needed
 
 ## Prerequisites
@@ -149,10 +151,14 @@ You should get back something like:
 
 ### Docker
 
-For HTTP/protobuf support or containerized deployment, an all-in-one Docker
-image bundles otlp-mcp with an OpenTelemetry Collector proxy:
+An all-in-one Docker image bundles otlp-mcp with an OpenTelemetry Collector
+proxy for HTTP/protobuf support:
 
 ```bash
+# Pre-built multi-arch image (linux/amd64, linux/arm64)
+docker run --rm -p 4317:4317 -p 4318:4318 -p 9912:9912 ghcr.io/tobert/otlp-mcp:latest
+
+# Or build locally
 make build   # Build image
 make run     # Start container
 ```
@@ -162,11 +168,27 @@ Exposes three ports:
 - **4318** — OTLP HTTP/protobuf (via OTel Collector)
 - **9912** — MCP HTTP API
 
+#### Loading existing otelcol data
+
+Mount an OpenTelemetry Collector file exporter directory at `/logs` to
+load existing telemetry on startup:
+
+```bash
+docker run --rm \
+  -p 4317:4317 -p 4318:4318 -p 9912:9912 \
+  -v /tank/otel:/logs:ro \
+  ghcr.io/tobert/otlp-mcp:latest
+```
+
+The directory should contain `traces/`, `logs/`, and/or `metrics/` subdirectories
+with JSONL files. Only the active (non-rotated) file in each subdirectory is
+loaded by default; rotated archives are skipped.
+
 See [README-docker.md](README-docker.md) for full details.
 
 ## MCP Tools
 
-The server provides 11 tools for observability:
+The server provides 14 tools for observability:
 
 | Tool | Description |
 |------|-------------|
@@ -179,6 +201,9 @@ The server provides 11 tools for observability:
 | `manage_snapshots` | List/delete/clear snapshots. Surgical cleanup - prefer this over `clear_data` for targeted housekeeping |
 | `get_stats` | Buffer health dashboard - check capacity, current usage, and snapshot count. Use before long-running observations to avoid buffer wraparound |
 | `clear_data` | Nuclear option - wipes ALL telemetry data and snapshots. Use sparingly for complete resets |
+| `set_file_source` | Load OTLP JSONL from an otel-collector file exporter directory. Watches for new data |
+| `remove_file_source` | Stop watching a file source directory. Already-loaded data stays in buffers |
+| `list_file_sources` | Show active file source directories and their tracking stats |
 | `status` | Fast status check - monotonic counters, generation for change detection, error count, uptime |
 | `recent_activity` | Recent activity summary - traces (deduplicated), errors, throughput, optional metric peek with histogram percentiles |
 
