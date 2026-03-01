@@ -13,8 +13,8 @@ import (
 )
 
 // runSSHTransport starts the MCP server using SSH transport.
-// It loads or generates a host key, parses authorized keys, installs
-// authorization middleware, and starts the SSH handler.
+// It loads or generates a host key, parses authorized keys, and starts
+// the SSH handler.
 func runSSHTransport(ctx context.Context, cfg *Config, mcpServer *mcpserver.Server, otlpErrChan chan error) error {
 	// Ensure file sources are stopped on exit
 	defer mcpServer.Shutdown()
@@ -51,10 +51,7 @@ func runSSHTransport(ctx context.Context, cfg *Config, mcpServer *mcpserver.Serv
 	}
 	log.Printf("🔑 SSH authorized keys: %s\n", cfg.SSHAuthorizedKeys)
 
-	// 3. Install authorization middleware on the MCP server.
-	mcpServer.MCPServer().AddReceivingMiddleware(sshtransport.AuthorizationMiddleware())
-
-	// 4. Create SSH handler.
+	// 3. Create SSH handler.
 	handler := sshtransport.NewSSHHandler(
 		func() *mcp.Server { return mcpServer.MCPServer() },
 		&sshtransport.SSHHandlerOptions{
@@ -64,14 +61,14 @@ func runSSHTransport(ctx context.Context, cfg *Config, mcpServer *mcpserver.Serv
 		},
 	)
 
-	// 5. Start SSH server in background.
+	// 4. Start SSH server in background.
 	addr := fmt.Sprintf("%s:%d", cfg.SSHHost, cfg.SSHPort)
 	sshErrChan := make(chan error, 1)
 	go func() {
 		sshErrChan <- handler.ListenAndServe(ctx, addr)
 	}()
 
-	// 6. Wait for shutdown or errors.
+	// 5. Wait for shutdown or errors.
 	select {
 	case <-ctx.Done():
 		return handler.Close()
