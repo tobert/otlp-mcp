@@ -32,10 +32,11 @@ otlp-mcp serve \
   --otlp-port "${OTLP_PORT}" \
   --verbose \
   ${CONFIG_FLAG} \
-  ${STATELESS_FLAG} &
+  ${STATELESS_FLAG} & # intentional word splitting on CONFIG_FLAG/STATELESS_FLAG
 OTLP_MCP_PID=$!
 
-# Wait for otlp-mcp to be ready
+# Wait for otlp-mcp to be ready. 1s is sufficient — it binds quickly and
+# otelcol takes longer to initialize than otlp-mcp does to start listening.
 sleep 1
 
 # Start otelcol in background
@@ -44,6 +45,8 @@ export OTLP_MCP_ENDPOINT="127.0.0.1:${OTLP_PORT}"
 otelcol --config /etc/otel/config.yaml &
 OTELCOL_PID=$!
 
-# Wait for either process to exit
-wait -n "$OTLP_MCP_PID" "$OTELCOL_PID" 2>/dev/null || true
+# Wait for either process to exit (POSIX-compatible, no bash wait -n)
+while kill -0 "$OTLP_MCP_PID" 2>/dev/null && kill -0 "$OTELCOL_PID" 2>/dev/null; do
+  sleep 1
+done
 cleanup

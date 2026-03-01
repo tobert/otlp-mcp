@@ -10,12 +10,15 @@ RUN go build -o /otlp-mcp ./cmd/otlp-mcp
 FROM otel/opentelemetry-collector:0.146.1 AS otelcol
 
 # Stage 3: Final image
-FROM alpine:latest
+FROM alpine:3.21
 
 COPY --from=builder /otlp-mcp /usr/local/bin/otlp-mcp
 COPY --from=otelcol /otelcol /usr/local/bin/otelcol
 COPY otel-config.yaml /etc/otel/config.yaml
 COPY entrypoint.sh /entrypoint.sh
+
+RUN addgroup -S otlp && adduser -S otlp -G otlp
+USER otlp
 
 ENV MCP_PORT=9912
 ENV OTLP_PORT=4317
