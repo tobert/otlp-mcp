@@ -1,23 +1,19 @@
-# Stage 1: Build otlp-mcp from local source
-FROM golang:1.25-alpine AS builder
-WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN go build -o /otlp-mcp ./cmd/otlp-mcp
+# Release Dockerfile for GoReleaser.
+# Binary is built by GoReleaser and copied in via COPY.
+# otelcol comes from the official multi-arch image — no qemu needed.
 
-# Stage 2: Get otelcol binary from official image
 FROM otel/opentelemetry-collector:0.146.1 AS otelcol
 
-# Stage 3: Final image
 FROM alpine:3.21
 
-COPY --from=builder /otlp-mcp /usr/local/bin/otlp-mcp
+ARG TARGETPLATFORM
 COPY --from=otelcol /otelcol /usr/local/bin/otelcol
+COPY ${TARGETPLATFORM}/otlp-mcp /usr/local/bin/otlp-mcp
 COPY otel-config.yaml /etc/otel/config.yaml
 COPY entrypoint.sh /entrypoint.sh
 
 RUN addgroup -g 4317 -S otlp && adduser -u 4317 -S otlp -G otlp
+
 USER otlp
 
 ENV MCP_PORT=9912
