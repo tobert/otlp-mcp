@@ -14,6 +14,7 @@ if [ -f "${CONFIG_PATH}" ]; then
   CONFIG_FLAG="--config ${CONFIG_PATH}"
 fi
 
+# shellcheck disable=SC2329  # invoked via trap
 cleanup() {
   echo "Shutting down..."
   kill "$OTLP_MCP_PID" 2>/dev/null || true
@@ -24,6 +25,7 @@ trap cleanup TERM INT
 
 # Start otlp-mcp in background
 echo "Starting otlp-mcp (MCP HTTP: :${MCP_PORT}, OTLP gRPC: :${OTLP_PORT})"
+# shellcheck disable=SC2086  # intentional word splitting on CONFIG_FLAG/STATELESS_FLAG
 otlp-mcp serve \
   --transport http \
   --http-host 0.0.0.0 \
@@ -32,7 +34,7 @@ otlp-mcp serve \
   --otlp-port "${OTLP_PORT}" \
   --verbose \
   ${CONFIG_FLAG} \
-  ${STATELESS_FLAG} & # intentional word splitting on CONFIG_FLAG/STATELESS_FLAG
+  ${STATELESS_FLAG} &
 OTLP_MCP_PID=$!
 
 # Wait for otlp-mcp to be ready. 1s is sufficient — it binds quickly and
