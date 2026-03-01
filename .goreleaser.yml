@@ -1,0 +1,67 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: 'SNAPSHOT-{{ .Commit }}'
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - Merge pull request
+      - Merge branch
+      - go mod tidy
+
+builds:
+  - main: ./cmd/otlp-mcp
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}}
+
+archives:
+  - formats: ["tar.gz"]
+    builds_info:
+      group: root
+      owner: root
+
+nfpms:
+  - package_name: otlp-mcp
+    homepage: https://github.com/tobert/otlp-mcp
+    maintainer: Amy Tobey <tobert@github.com>
+    description: OTLP MCP server for AI agent observability
+    license: Apache 2.0
+    formats:
+      - apk
+      - deb
+      - rpm
+
+dockers_v2:
+  - dockerfile: release/Dockerfile
+    extra_files:
+      - otel-config.yaml
+      - entrypoint.sh
+    images:
+      - "ghcr.io/tobert/otlp-mcp"
+    tags:
+      - "{{ .Tag }}"
+      - latest
+    labels:
+      "org.opencontainers.image.created": "{{.Date}}"
+      "org.opencontainers.image.name": "{{.ProjectName}}"
+      "org.opencontainers.image.revision": "{{.FullCommit}}"
+      "org.opencontainers.image.version": "{{.Version}}"
+      "org.opencontainers.image.source": "{{.GitURL}}"

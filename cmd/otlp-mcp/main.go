@@ -9,21 +9,28 @@ import (
 	cliframework "github.com/urfave/cli/v3"
 )
 
-const version = "0.3.0"
+// Set by goreleaser ldflags.
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
 
 func main() {
+	fullVersion := fmt.Sprintf("%s (%s, %s)", version, commit, date)
+
 	serveCmd := cli.ServeCommand()
 
 	app := &cliframework.Command{
 		Name:    "otlp-mcp",
 		Usage:   "OTLP MCP server for AI agent observability",
-		Version: version,
+		Version: fullVersion,
 		// Default to serve when no subcommand provided
 		Action: serveCmd.Action,
 		Flags:  serveCmd.Flags,
 		Commands: []*cliframework.Command{
 			serveCmd,
-			cli.DoctorCommand(version),
+			cli.DoctorCommand(fullVersion),
 		},
 	}
 
