@@ -3,15 +3,6 @@
 # This unit runs otlp-mcp as a persistent HTTP service, auto-discovering
 # file sources from the otel-collector configuration.
 #
-# Installation:
-#   ln -s ~/src/otlp-mcp/systemd/otlp-mcp.service ~/.config/systemd/user/
-#   systemctl --user daemon-reload
-#   systemctl --user enable --now otlp-mcp
-#
-# Verify:
-#   systemctl --user status otlp-mcp
-#   journalctl --user -u otlp-mcp -f
-#
 # MCP Endpoint:
 #   http://127.0.0.1:4380/mcp
 #
@@ -46,10 +37,12 @@ Type=exec
 #   System: /etc/otelcol/config.yaml (shown below)
 #   User:   %h/.config/otelcol/config.yaml
 # Remove --otel-config entirely to use OTLP gRPC receiver instead of files.
-ExecStart=%h/src/otlp-mcp/otlp-mcp serve \
+ExecStart=%h/bin/otlp-mcp serve \
     --transport http \
     --http-host 127.0.0.1 \
     --http-port 4380 \
+    --webui-host 127.0.0.1 \
+    --webui-port 4381 \
     --otel-config /etc/otelcol/config.yaml
 Restart=on-failure
 RestartSec=10

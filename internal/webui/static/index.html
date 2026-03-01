@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>otlp-mcp</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1017;--bg2:#11131c;--bg3:#1a1e30;
+  --fg:#a9b1d6;--fg2:#565f89;
+  --ok:#9ece6a;--info:#7aa2f7;--warn:#e0af68;--err:#f7768e;
+  --border:#1e2030;--hover:#1a1e33;
+  --font:'JetBrains Mono','Fira Code','Cascadia Code',monospace;
+}
+html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--font);font-size:13px}
+a{color:var(--info)}
+
+/* Layout */
+#app{display:flex;flex-direction:column;height:100vh}
+
+/* Header */
+header{display:flex;align-items:center;gap:12px;padding:8px 16px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+header h1{font-size:15px;font-weight:600;color:var(--info)}
+.status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.status-dot.connected{background:var(--ok)}
+.status-dot.disconnected{background:var(--err);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.counters{display:flex;gap:12px;font-size:12px;color:var(--fg2)}
+.counters span{white-space:nowrap}
+.counters b{color:var(--fg)}
+
+/* Filter bar */
+.filters{display:flex;align-items:center;gap:8px;padding:6px 16px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.filters label{font-size:11px;color:var(--fg2)}
+.filters select,.filters input[type=text]{
+  background:var(--bg);border:1px solid var(--border);color:var(--fg);padding:3px 6px;border-radius:3px;font-family:var(--font);font-size:12px;
+}
+.filters select:focus,.filters input:focus{outline:1px solid var(--info);border-color:var(--info)}
+.severity-checks{display:flex;gap:6px;align-items:center}
+.severity-checks label{display:flex;align-items:center;gap:2px;cursor:pointer;font-size:11px}
+.severity-checks input{accent-color:var(--info)}
+.btn{
+  background:var(--bg3);border:1px solid var(--border);color:var(--fg);padding:3px 10px;border-radius:3px;cursor:pointer;font-family:var(--font);font-size:12px;
+}
+.btn:hover{background:var(--hover)}
+.btn.active{background:var(--warn);color:#000;border-color:var(--warn)}
+
+/* Tabs */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--border);flex-shrink:0}
+.tab{
+  padding:6px 20px;cursor:pointer;border-bottom:2px solid transparent;color:var(--fg2);font-size:12px;font-weight:500;
+  transition:color .15s,border-color .15s;
+}
+.tab:hover{color:var(--fg)}
+.tab.active{color:var(--info);border-bottom-color:var(--info)}
+.tab .badge{
+  display:inline-block;min-width:16px;padding:0 4px;margin-left:6px;
+  background:var(--bg3);border-radius:8px;font-size:10px;text-align:center;color:var(--fg2);
+}
+
+/* Content */
+.content{flex:1;overflow:auto;padding:0}
+.panel{display:none;height:100%}
+.panel.active{display:flex;flex-direction:column}
+
+/* Tables */
+table{width:100%;border-collapse:collapse}
+thead{position:sticky;top:0;z-index:1}
+th{
+  background:var(--bg2);padding:6px 10px;text-align:left;font-size:11px;font-weight:600;
+  color:var(--fg2);border-bottom:1px solid var(--border);white-space:nowrap;
+}
+td{padding:4px 10px;border-bottom:1px solid var(--border);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:400px}
+tr:hover{background:var(--hover)}
+
+/* Status badges */
+.s-ok{color:var(--ok)}.s-error{color:var(--err);font-weight:600}.s-unset{color:var(--fg2)}
+.sev-debug{color:#444b6a}.sev-info{color:var(--info)}.sev-warn{color:var(--warn)}.sev-error{color:var(--err);font-weight:600}
+tr.row-error{background:rgba(247,118,142,.06)}
+
+/* Empty state */
+.empty{padding:40px;text-align:center;color:var(--fg2);font-size:14px}
+
+/* Search */
+#search{width:160px}
+
+/* Trace cards */
+.trace-cards{padding:4px 0;overflow-y:auto}
+.trace-card{border-bottom:1px solid var(--border);transition:background .1s}
+.trace-card:hover{background:var(--hover)}
+.trace-card.has-error{border-left:3px solid var(--err)}
+.trace-card-header{
+  display:flex;align-items:center;gap:10px;padding:6px 12px;cursor:pointer;
+  font-size:12px;user-select:none;
+}
+.trace-card-header .expand-icon{color:var(--fg2);font-size:10px;width:12px;flex-shrink:0;transition:transform .15s}
+.trace-card-header .expand-icon.open{transform:rotate(90deg)}
+.trace-card-header .trace-id{color:var(--info);font-size:11px;min-width:70px}
+.trace-card-header .service-chain{color:var(--fg);flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trace-card-header .service-chain .svc-arrow{color:var(--fg2);margin:0 3px}
+.trace-card-header .mini-waterfall{flex:1;min-width:80px;height:16px;overflow:hidden}
+.trace-card-header .mini-waterfall svg{width:100%;height:100%;display:block}
+.trace-card-header .trace-duration{color:var(--fg2);min-width:60px;text-align:right}
+.trace-card-header .span-count{color:var(--fg2);min-width:50px;text-align:right}
+.trace-card-header .trace-status{min-width:40px;text-align:right}
+.trace-card-body{
+  max-height:400px;overflow:auto;padding:0 12px 8px 12px;
+  border-top:1px solid var(--border);background:rgba(0,0,0,.15);
+}
+.trace-card-body.hidden{display:none}
+.trace-single-span{padding:8px 0;font-size:12px;color:var(--fg2)}
+
+/* SVG swimlane */
+.swimlane-svg{display:block}
+.swimlane-svg text{font-family:var(--font);font-size:11px;fill:var(--fg)}
+.swimlane-svg .lane-line{stroke:var(--border);stroke-width:1;stroke-dasharray:4,3}
+.swimlane-svg .svc-label{font-size:11px;font-weight:600;fill:var(--info)}
+.swimlane-svg .span-bar{stroke-width:0;rx:2}
+.swimlane-svg .span-label{font-size:10px;fill:var(--fg)}
+.swimlane-svg .span-dur{font-size:9px;fill:var(--fg2)}
+.swimlane-svg .connector{stroke:var(--fg2);stroke-width:1;stroke-dasharray:3,2;fill:none}
+.swimlane-svg .cross-arrow{stroke:var(--fg);stroke-width:1.5;fill:none}
+.swimlane-svg .cross-arrow.error{stroke:var(--err)}
+.swimlane-svg .arrowhead{fill:var(--fg)}
+.swimlane-svg .arrowhead.error{fill:var(--err)}
+
+/* Rollup styles */
+.trace-card.rollup{opacity:0.85}
+.trace-card.rollup .trace-card-header{cursor:default}
+.rollup-icon{color:var(--fg2);font-size:13px;width:12px;flex-shrink:0}
+.rollup-count{color:var(--warn);font-weight:600;min-width:40px;text-align:right;white-space:nowrap}
+.rollup-names{color:var(--fg2);font-size:11px;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rollup-ago{color:var(--fg2);font-size:11px;min-width:50px;text-align:right}
+.log-count{color:var(--warn);font-size:11px;margin-left:6px;font-weight:600}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>otlp-mcp</h1>
+    <div class="status-dot disconnected" id="statusDot" title="Disconnected"></div>
+    <div class="counters">
+      <span>spans: <b id="cSpans">0</b></span>
+      <span>logs: <b id="cLogs">0</b></span>
+      <span>metrics: <b id="cMetrics">0</b></span>
+      <span>gen: <b id="cGen">0</b></span>
+    </div>
+    <div style="flex:1"></div>
+    <button class="btn" id="btnPause">Pause</button>
+  </header>
+
+  <div class="filters">
+    <label>Service:</label>
+    <select id="serviceFilter"><option value="">All</option></select>
+    <label id="sevLabel">Severity:</label>
+    <div class="severity-checks" id="sevChecks">
+      <label><input type="checkbox" value="DEBUG" checked>DEBUG</label>
+      <label><input type="checkbox" value="INFO" checked>INFO</label>
+      <label><input type="checkbox" value="WARN" checked>WARN</label>
+      <label><input type="checkbox" value="ERROR" checked>ERROR</label>
+    </div>
+    <label>Search:</label>
+    <input type="text" id="search" placeholder="filter...">
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="traces">Traces <span class="badge" id="bTraces">0</span></div>
+    <div class="tab" data-tab="logs">Logs <span class="badge" id="bLogs">0</span></div>
+    <div class="tab" data-tab="metrics">Metrics <span class="badge" id="bMetrics">0</span></div>
+  </div>
+
+  <div class="content">
+    <div class="panel active" id="pTraces">
+      <div id="traceCards" class="trace-cards"></div>
+    </div>
+    <div class="panel" id="pLogs">
+      <table><thead><tr>
+        <th>Time</th><th>Service</th><th>Severity</th><th>Body</th>
+      </tr></thead><tbody id="tLogs"></tbody></table>
+    </div>
+    <div class="panel" id="pMetrics">
+      <table><thead><tr>
+        <th>Name</th><th>Type</th><th>Service</th><th>Value</th><th>Updated</th>
+      </tr></thead><tbody id="tMetrics"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+const MAX_ROWS = 500;
+const MAX_TRACES = 100;
+const LOG_ROLLUP_CAP = 200;
+let ws = null;
+let paused = false;
+let activeTab = 'traces';
+let logCount = 0;
+
+// Trace data model: Map<traceId, TraceInfo>
+const traceMap = new Map();
+const rollupElements = new Map(); // fingerprint -> DOM element
+
+// Log rollup: key -> { tr, count, lastTime, service, severity, body }
+const logRollup = new Map();
+
+// Metric dedup: name -> { tr, lastUpdated }
+const metricRows = new Map();
+
+// DOM refs
+const $ = id => document.getElementById(id);
+const statusDot = $('statusDot');
+const cSpans = $('cSpans'), cLogs = $('cLogs'), cMetrics = $('cMetrics'), cGen = $('cGen');
+const bTraces = $('bTraces'), bLogs = $('bLogs'), bMetrics = $('bMetrics');
+const traceCards = $('traceCards');
+const tLogs = $('tLogs'), tMetrics = $('tMetrics');
+const serviceFilter = $('serviceFilter');
+const searchInput = $('search');
+const btnPause = $('btnPause');
+const sevChecks = $('sevChecks');
+const sevLabel = $('sevLabel');
+
+// Tabs
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    const target = tab.dataset.tab;
+    document.getElementById('p' + target.charAt(0).toUpperCase() + target.slice(1)).classList.add('active');
+    activeTab = target;
+    const showSev = target === 'logs';
+    sevChecks.style.display = showSev ? 'flex' : 'none';
+    sevLabel.style.display = showSev ? '' : 'none';
+    applyClientFilter();
+  });
+});
+
+// Pause
+btnPause.addEventListener('click', () => {
+  paused = !paused;
+  btnPause.textContent = paused ? 'Resume' : 'Pause';
+  btnPause.classList.toggle('active', paused);
+  sendFilter();
+});
+
+// Service filter change
+serviceFilter.addEventListener('change', () => sendFilter());
+
+// Severity checkboxes
+sevChecks.addEventListener('change', () => applyClientFilter());
+
+// Search
+searchInput.addEventListener('input', () => applyClientFilter());
+
+// Initially hide severity (traces tab is default)
+sevChecks.style.display = 'none';
+sevLabel.style.display = 'none';
+
+function sendFilter() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  try { ws.send(JSON.stringify({
+    service: serviceFilter.value,
+    severity: '',
+    paused: paused
+  })); } catch {}
+}
+
+function applyClientFilter() {
+  const search = searchInput.value.toLowerCase();
+  const checkedSev = new Set();
+  sevChecks.querySelectorAll('input:checked').forEach(cb => checkedSev.add(cb.value));
+
+  // Filter trace cards
+  traceCards.querySelectorAll('.trace-card').forEach(card => {
+    const text = card.textContent.toLowerCase();
+    card.style.display = text.includes(search) ? '' : 'none';
+  });
+
+  // Filter logs (severity + search)
+  // Fold TRACE into DEBUG checkbox, FATAL into ERROR checkbox
+  tLogs.querySelectorAll('tr').forEach(row => {
+    const sev = row.dataset.severity || '';
+    const text = row.textContent.toLowerCase();
+    const sevMatch = checkedSev.has(sev) ||
+      (sev === 'TRACE' && checkedSev.has('DEBUG')) ||
+      (sev === 'FATAL' && checkedSev.has('ERROR'));
+    const searchMatch = text.includes(search);
+    row.style.display = (sevMatch && searchMatch) ? '' : 'none';
+  });
+
+  // Filter metrics
+  tMetrics.querySelectorAll('tr').forEach(row => {
+    const text = row.textContent.toLowerCase();
+    row.style.display = text.includes(search) ? '' : 'none';
+  });
+}
+
+let filterRAF = 0;
+function scheduleFilter() {
+  if (!filterRAF) {
+    filterRAF = requestAnimationFrame(() => { filterRAF = 0; applyClientFilter(); });
+  }
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function statusClass(s) {
+  if (s === 'OK') return 's-ok';
+  if (s === 'ERROR') return 's-error';
+  return 's-unset';
+}
+
+function sevClass(s) {
+  const sl = (s||'').toUpperCase();
+  if (sl === 'DEBUG' || sl === 'TRACE') return 'sev-debug';
+  if (sl === 'INFO') return 'sev-info';
+  if (sl.startsWith('WARN')) return 'sev-warn';
+  if (sl === 'ERROR' || sl === 'FATAL') return 'sev-error';
+  return '';
+}
+
+function fmtDuration(ms) {
+  if (ms >= 1000) return (ms/1000).toFixed(2) + 's';
+  if (ms >= 1) return ms.toFixed(1) + 'ms';
+  return (ms * 1000).toFixed(0) + 'us';
+}
+
+function shortTraceID(id) {
+  if (!id) return '';
+  return id.length > 8 ? id.slice(0,8) + '...' : id;
+}
+
+// ---- Trace card + swimlane system ----
+
+function getOrCreateTrace(traceId) {
+  if (traceMap.has(traceId)) return traceMap.get(traceId);
+  const info = {
+    traceId: traceId,
+    spans: new Map(),
+    services: new Set(),
+    firstSeen: Date.now(),
+    lastActivity: Date.now(),
+    totalDurationMs: 0,
+    hasError: false,
+    rootSpanName: '',
+    expanded: false,
+    element: null
+  };
+  traceMap.set(traceId, info);
+  return info;
+}
+
+function addSpanToTrace(span) {
+  const trace = getOrCreateTrace(span.trace_id);
+  trace.spans.set(span.span_id, span);
+  trace.services.add(span.service);
+  trace.lastActivity = Date.now();
+  if (span.status === 'ERROR') trace.hasError = true;
+
+  // Recalculate root span and total duration
+  recalcTrace(trace);
+  return trace;
+}
+
+function recalcTrace(trace) {
+  let minStart = Infinity, maxEnd = 0;
+  let rootSpan = null;
+
+  for (const span of trace.spans.values()) {
+    if (!span.parent_span_id) rootSpan = span;
+    if (span.start_ns && span.start_ns < minStart) minStart = span.start_ns;
+    if (span.end_ns && span.end_ns > maxEnd) maxEnd = span.end_ns;
+  }
+
+  if (rootSpan) {
+    trace.rootSpanName = rootSpan.span_name;
+  } else {
+    // Pick the earliest span as pseudo-root
+    let earliest = null;
+    for (const span of trace.spans.values()) {
+      if (!earliest || span.start_ns < earliest.start_ns) earliest = span;
+    }
+    if (earliest) trace.rootSpanName = earliest.span_name;
+  }
+
+  trace.minStartNs = minStart < Infinity ? minStart : 0;
+  trace.maxEndNs = maxEnd;
+  if (minStart < Infinity && maxEnd > 0) {
+    trace.totalDurationMs = (maxEnd - minStart) / 1e6;
+  }
+}
+
+// BFS service ordering from root span
+function getServiceOrder(trace) {
+  const order = [];
+  const seen = new Set();
+  const spanById = trace.spans;
+
+  // Find root span(s)
+  const roots = [];
+  for (const span of spanById.values()) {
+    if (!span.parent_span_id) roots.push(span);
+  }
+  // If no root, use earliest span
+  if (roots.length === 0) {
+    let earliest = null;
+    for (const span of spanById.values()) {
+      if (!earliest || span.start_ns < earliest.start_ns) earliest = span;
+    }
+    if (earliest) roots.push(earliest);
+  }
+
+  // Build child lookup for O(n) BFS instead of O(n^2)
+  const childrenOf = new Map();
+  for (const span of spanById.values()) {
+    if (span.parent_span_id) {
+      if (!childrenOf.has(span.parent_span_id)) childrenOf.set(span.parent_span_id, []);
+      childrenOf.get(span.parent_span_id).push(span);
+    }
+  }
+
+  // BFS
+  const queue = [...roots];
+  while (queue.length > 0) {
+    const span = queue.shift();
+    if (!seen.has(span.service)) {
+      seen.add(span.service);
+      order.push(span.service);
+    }
+    const children = childrenOf.get(span.span_id) || [];
+    queue.push(...children);
+  }
+
+  // Append orphan services
+  for (const svc of trace.services) {
+    if (!seen.has(svc)) {
+      order.push(svc);
+    }
+  }
+
+  return order;
+}
+
+// Trace rollup: fingerprint by sorted (service, span_name) pairs
+function traceFingerprint(trace) {
+  return [...trace.spans.values()]
+    .map(s => s.service + ':' + s.span_name)
+    .sort()
+    .join('|');
+}
+
+function renderRollupCard(fp, traces) {
+  if (!rollupElements.has(fp)) {
+    const card = document.createElement('div');
+    card.className = 'trace-card rollup';
+    const header = document.createElement('div');
+    header.className = 'trace-card-header';
+    card.appendChild(header);
+    rollupElements.set(fp, card);
+  }
+
+  const card = rollupElements.get(fp);
+  const header = card.querySelector('.trace-card-header');
+
+  const count = traces.length;
+  const latest = traces.reduce((a, b) => a.lastActivity > b.lastActivity ? a : b);
+  const avgDur = traces.reduce((s, t) => s + t.totalDurationMs, 0) / count;
+  const ago = Math.round((Date.now() - latest.lastActivity) / 1000);
+  const agoStr = ago < 60 ? ago + 's ago' : Math.round(ago / 60) + 'm ago';
+
+  const serviceOrder = getServiceOrder(latest);
+  const chainHtml = serviceOrder.map(s => esc(s)).join('<span class="svc-arrow">\u2192</span>');
+  const spanNames = [...new Set([...latest.spans.values()].map(s => s.span_name))].join(', ');
+
+  header.innerHTML =
+    '<span class="rollup-icon">\u2261</span>' +
+    '<span class="service-chain">' + chainHtml + '</span>' +
+    '<span class="rollup-names">' + esc(spanNames) + '</span>' +
+    renderMiniWaterfallSvg(latest) +
+    '<span class="rollup-count">\u00d7' + count + '</span>' +
+    '<span class="trace-duration">~' + fmtDuration(avgDur) + '</span>' +
+    '<span class="rollup-ago">' + agoStr + '</span>';
+
+  card.classList.toggle('has-error', traces.some(t => t.hasError));
+}
+
+// Service color palette for mini waterfall
+const SVC_COLORS = ['#7aa2f7','#bb9af7','#ff9e64','#9ece6a','#f7768e','#7dcfff','#e0af68','#73daca'];
+
+function renderMiniWaterfallSvg(trace) {
+  const range = trace.maxEndNs - trace.minStartNs;
+  if (!range || trace.spans.size === 0) return '';
+
+  const VW = 1000; // viewBox width
+  const VH = 16;   // viewBox height
+  const MAX_MINI_ROWS = 4;
+
+  // Assign colors by service order
+  const serviceOrder = getServiceOrder(trace);
+  const svcColor = new Map();
+  serviceOrder.forEach((svc, i) => svcColor.set(svc, SVC_COLORS[i % SVC_COLORS.length]));
+
+  // Sort spans by start time
+  const sorted = [...trace.spans.values()].sort((a, b) => (a.start_ns || 0) - (b.start_ns || 0));
+
+  // Greedy row packing: assign each span to first row where it fits
+  const rowEnds = []; // tracks end position of last span on each row
+  const assignments = [];
+  for (const span of sorted) {
+    const x = ((span.start_ns - trace.minStartNs) / range) * VW;
+    let w = ((span.end_ns - span.start_ns) / range) * VW;
+    if (w < 2) w = 2; // minimum visible width
+
+    let row = -1;
+    for (let r = 0; r < rowEnds.length && r < MAX_MINI_ROWS; r++) {
+      if (rowEnds[r] <= x) { row = r; break; }
+    }
+    if (row === -1) {
+      if (rowEnds.length < MAX_MINI_ROWS) {
+        row = rowEnds.length;
+        rowEnds.push(0);
+      } else {
+        // Overflow: pack into row with earliest end
+        row = 0;
+        for (let r = 1; r < MAX_MINI_ROWS; r++) {
+          if (rowEnds[r] < rowEnds[row]) row = r;
+        }
+      }
+    }
+    rowEnds[row] = x + w + 1;
+    assignments.push({ span, x, w, row });
+  }
+
+  const numRows = Math.min(rowEnds.length, MAX_MINI_ROWS);
+  const barH = Math.max(1, Math.floor((VH - (numRows - 1)) / numRows));
+  const gap = numRows > 1 ? Math.max(1, Math.floor((VH - numRows * barH) / (numRows - 1))) : 0;
+
+  let rects = '';
+  for (const { span, x, w, row } of assignments) {
+    const y = row * (barH + gap);
+    const color = span.status === 'ERROR' ? '#f7768e' : (svcColor.get(span.service) || '#7aa2f7');
+    rects += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + barH + '" fill="' + color + '" rx="1"/>';
+  }
+
+  return '<span class="mini-waterfall"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + VW + ' ' + VH + '" preserveAspectRatio="none">' + rects + '</svg></span>';
+}
+
+function renderTraceCard(trace) {
+  if (!trace.element) {
+    const card = document.createElement('div');
+    card.className = 'trace-card';
+    card.dataset.traceId = trace.traceId;
+
+    const header = document.createElement('div');
+    header.className = 'trace-card-header';
+    header.addEventListener('click', () => {
+      trace.expanded = !trace.expanded;
+      updateTraceCardBody(trace);
+      const icon = card.querySelector('.expand-icon');
+      if (icon) icon.classList.toggle('open', trace.expanded);
+    });
+
+    const body = document.createElement('div');
+    body.className = 'trace-card-body hidden';
+
+    card.appendChild(header);
+    card.appendChild(body);
+    trace.element = card;
+  }
+
+  // Update header content
+  const serviceOrder = getServiceOrder(trace);
+  const chainHtml = serviceOrder.map(s => esc(s)).join('<span class="svc-arrow">\u2192</span>');
+  const statusStr = trace.hasError ? 'ERROR' : 'OK';
+
+  const header = trace.element.querySelector('.trace-card-header');
+  header.innerHTML =
+    '<span class="expand-icon' + (trace.expanded ? ' open' : '') + '">\u25B6</span>' +
+    '<span class="trace-id" title="' + esc(trace.traceId) + '">' + esc(shortTraceID(trace.traceId)) + '</span>' +
+    '<span class="service-chain">' + chainHtml + '</span>' +
+    renderMiniWaterfallSvg(trace) +
+    '<span class="trace-duration">' + fmtDuration(trace.totalDurationMs) + '</span>' +
+    '<span class="span-count">' + trace.spans.size + ' span' + (trace.spans.size !== 1 ? 's' : '') + '</span>' +
+    '<span class="trace-status ' + statusClass(statusStr) + '">' + esc(statusStr) + '</span>';
+
+  trace.element.classList.toggle('has-error', trace.hasError);
+
+  if (trace.expanded) {
+    updateTraceCardBody(trace);
+  }
+}
+
+function updateTraceCardBody(trace) {
+  const body = trace.element.querySelector('.trace-card-body');
+  if (!trace.expanded) {
+    body.classList.add('hidden');
+    return;
+  }
+  body.classList.remove('hidden');
+
+  if (trace.spans.size <= 1) {
+    // Single span — text summary
+    const span = trace.spans.values().next().value;
+    if (span) {
+      body.innerHTML = '<div class="trace-single-span">' +
+        esc(span.service) + ' \u2014 ' + esc(span.span_name) +
+        ' \u2014 ' + fmtDuration(span.duration_ms) +
+        ' \u2014 <span class="' + statusClass(span.status) + '">' + esc(span.status) + '</span>' +
+        '</div>';
+    }
+    return;
+  }
+
+  // Render SVG swimlane
+  body.innerHTML = '';
+  body.appendChild(renderSwimlane(trace));
+}
+
+function renderSwimlane(trace) {
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const COL_WIDTH = 160;
+  const ROW_HEIGHT = 26;
+  const HEADER_HEIGHT = 28;
+  const LEFT_PAD = 16;
+  const TOP_PAD = 6;
+  const BAR_MAX_W = COL_WIDTH - 24;
+  const BAR_H = 14;
+
+  const serviceOrder = getServiceOrder(trace);
+  const svcIndex = new Map();
+  serviceOrder.forEach((svc, i) => svcIndex.set(svc, i));
+
+  // Assign colors
+  const svcColor = new Map();
+  serviceOrder.forEach((svc, i) => svcColor.set(svc, SVC_COLORS[i % SVC_COLORS.length]));
+
+  // Sort spans by start time
+  const sortedSpans = [...trace.spans.values()].sort((a, b) => (a.start_ns || 0) - (b.start_ns || 0));
+
+  // Index spans and track row positions
+  const spanIdMap = new Map();
+  const spanRow = new Map(); // span_id -> rowIdx
+  for (const span of trace.spans.values()) spanIdMap.set(span.span_id, span);
+  sortedSpans.forEach((span, i) => spanRow.set(span.span_id, i));
+
+  // Time range for proportional bar widths
+  const traceRange = trace.maxEndNs - trace.minStartNs;
+
+  const totalCols = serviceOrder.length;
+  const totalRows = sortedSpans.length;
+  const svgWidth = LEFT_PAD + totalCols * COL_WIDTH + 16;
+  const svgHeight = TOP_PAD + HEADER_HEIGHT + totalRows * ROW_HEIGHT + 8;
+
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'swimlane-svg');
+  svg.setAttribute('width', svgWidth);
+  svg.setAttribute('height', svgHeight);
+  svg.setAttribute('viewBox', '0 0 ' + svgWidth + ' ' + svgHeight);
+
+  // Defs: arrowhead markers
+  const defs = document.createElementNS(SVG_NS, 'defs');
+  [['ah','arrowhead'],['ah-err','arrowhead error']].forEach(([id, cls]) => {
+    const m = document.createElementNS(SVG_NS, 'marker');
+    m.setAttribute('id', id);
+    m.setAttribute('markerWidth', '8');
+    m.setAttribute('markerHeight', '6');
+    m.setAttribute('refX', '8');
+    m.setAttribute('refY', '3');
+    m.setAttribute('orient', 'auto');
+    const p = document.createElementNS(SVG_NS, 'polygon');
+    p.setAttribute('points', '0 0, 8 3, 0 6');
+    p.setAttribute('class', cls);
+    m.appendChild(p);
+    defs.appendChild(m);
+  });
+  svg.appendChild(defs);
+
+  // Service labels + lane lines
+  for (let i = 0; i < totalCols; i++) {
+    const cx = LEFT_PAD + i * COL_WIDTH + COL_WIDTH / 2;
+
+    const label = document.createElementNS(SVG_NS, 'text');
+    label.setAttribute('x', cx);
+    label.setAttribute('y', TOP_PAD + 14);
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('class', 'svc-label');
+    label.textContent = serviceOrder[i];
+    svg.appendChild(label);
+
+    const line = document.createElementNS(SVG_NS, 'line');
+    line.setAttribute('x1', cx);
+    line.setAttribute('y1', TOP_PAD + HEADER_HEIGHT - 2);
+    line.setAttribute('x2', cx);
+    line.setAttribute('y2', svgHeight);
+    line.setAttribute('class', 'lane-line');
+    svg.appendChild(line);
+  }
+
+  // Helper: row Y center
+  function rowY(idx) { return TOP_PAD + HEADER_HEIGHT + idx * ROW_HEIGHT + ROW_HEIGHT / 2; }
+
+  // Helper: lane X center
+  function laneX(svc) { return LEFT_PAD + svcIndex.get(svc) * COL_WIDTH + COL_WIDTH / 2; }
+
+  // Pass 1: draw parent→child connectors (behind bars)
+  for (const span of sortedSpans) {
+    if (!span.parent_span_id) continue;
+    const parent = spanIdMap.get(span.parent_span_id);
+    if (!parent) continue;
+
+    const parentRowIdx = spanRow.get(parent.span_id);
+    const childRowIdx = spanRow.get(span.span_id);
+    const py = rowY(parentRowIdx);
+    const cy = rowY(childRowIdx);
+    const px = laneX(parent.service);
+    const childX = laneX(span.service);
+
+    if (parent.service === span.service) {
+      // Same-service: vertical connector on left side of lane
+      const xOff = px - BAR_MAX_W / 2 - 6;
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', 'M' + xOff + ',' + py + ' L' + xOff + ',' + cy + ' L' + (xOff + 6) + ',' + cy);
+      path.setAttribute('class', 'connector');
+      svg.appendChild(path);
+    } else {
+      // Cross-service: angled arrow from parent lane to child lane
+      const isError = span.status === 'ERROR';
+      const errClass = isError ? ' error' : '';
+      const arrow = document.createElementNS(SVG_NS, 'line');
+      arrow.setAttribute('x1', px);
+      arrow.setAttribute('y1', py + BAR_H / 2 + 1);
+      arrow.setAttribute('x2', childX);
+      arrow.setAttribute('y2', cy - BAR_H / 2 - 1);
+      arrow.setAttribute('class', 'cross-arrow' + errClass);
+      arrow.setAttribute('marker-end', 'url(#' + (isError ? 'ah-err' : 'ah') + ')');
+      svg.appendChild(arrow);
+    }
+  }
+
+  // Pass 2: draw timing bars + labels (on top of connectors)
+  sortedSpans.forEach((span, rowIdx) => {
+    const y = rowY(rowIdx);
+    const cx = laneX(span.service);
+    const isError = span.status === 'ERROR';
+    const color = isError ? '#f7768e' : (svcColor.get(span.service) || '#7aa2f7');
+
+    // Bar width proportional to duration, minimum visible width
+    const spanDur = (span.end_ns || span.start_ns) - (span.start_ns || 0);
+    let barW = traceRange > 0 ? (spanDur / traceRange) * BAR_MAX_W : BAR_MAX_W;
+    barW = Math.max(8, Math.min(BAR_MAX_W, barW));
+
+    const rect = document.createElementNS(SVG_NS, 'rect');
+    rect.setAttribute('x', cx - barW / 2);
+    rect.setAttribute('y', y - BAR_H / 2);
+    rect.setAttribute('width', barW);
+    rect.setAttribute('height', BAR_H);
+    rect.setAttribute('fill', color);
+    rect.setAttribute('fill-opacity', '0.7');
+    rect.setAttribute('class', 'span-bar');
+    svg.appendChild(rect);
+
+    // Span name label — left of bar (or on bar if wide enough)
+    const nameLabel = truncLabel(span.span_name, 16);
+    const nameTxt = document.createElementNS(SVG_NS, 'text');
+    if (barW > 70) {
+      nameTxt.setAttribute('x', cx);
+      nameTxt.setAttribute('y', y + 3);
+      nameTxt.setAttribute('text-anchor', 'middle');
+    } else {
+      nameTxt.setAttribute('x', cx - barW / 2 - 4);
+      nameTxt.setAttribute('y', y + 3);
+      nameTxt.setAttribute('text-anchor', 'end');
+    }
+    nameTxt.setAttribute('class', 'span-label');
+    nameTxt.textContent = nameLabel;
+    svg.appendChild(nameTxt);
+
+    // Duration label — right of bar
+    const durTxt = document.createElementNS(SVG_NS, 'text');
+    durTxt.setAttribute('x', cx + barW / 2 + 4);
+    durTxt.setAttribute('y', y + 3);
+    durTxt.setAttribute('text-anchor', 'start');
+    durTxt.setAttribute('class', 'span-dur');
+    durTxt.textContent = fmtDuration(span.duration_ms);
+    svg.appendChild(durTxt);
+  });
+
+  return svg;
+}
+
+function truncLabel(s, max) {
+  if (!s) return '';
+  return s.length > max ? s.slice(0, max - 1) + '\u2026' : s;
+}
+
+function evictOldTraces() {
+  if (traceMap.size <= MAX_TRACES) return;
+  // Sort by lastActivity, evict oldest
+  const sorted = [...traceMap.entries()].sort((a, b) => a[1].lastActivity - b[1].lastActivity);
+  const toRemove = sorted.slice(0, traceMap.size - MAX_TRACES);
+  for (const [id, trace] of toRemove) {
+    if (trace.element && trace.element.parentNode) {
+      trace.element.parentNode.removeChild(trace.element);
+    }
+    traceMap.delete(id);
+  }
+}
+
+function sortAndRenderTraceCards() {
+  // Partition: traces with < 3 spans are rollup candidates
+  const individual = [];
+  const groups = new Map(); // fingerprint -> TraceInfo[]
+
+  for (const trace of traceMap.values()) {
+    if (trace.spans.size >= 3) {
+      individual.push(trace);
+    } else {
+      const fp = traceFingerprint(trace);
+      if (!groups.has(fp)) groups.set(fp, []);
+      groups.get(fp).push(trace);
+    }
+  }
+
+  // Single-occurrence fingerprints → promote to individual
+  for (const [fp, traces] of groups) {
+    if (traces.length === 1) {
+      individual.push(traces[0]);
+      groups.delete(fp);
+    }
+  }
+
+  // Build sorted render list mixing individual and rollup cards
+  const items = [];
+  for (const t of individual) items.push({ k: 'i', t, at: t.lastActivity });
+  for (const [fp, traces] of groups) {
+    const at = Math.max(...traces.map(t => t.lastActivity));
+    items.push({ k: 'r', fp, traces, at });
+  }
+  items.sort((a, b) => b.at - a.at);
+
+  // Track active rollup fingerprints this render
+  const activeRollups = new Set();
+
+  // Build desired element order
+  const desired = [];
+  for (const item of items) {
+    if (item.k === 'i') {
+      renderTraceCard(item.t);
+      desired.push(item.t.element);
+    } else {
+      activeRollups.add(item.fp);
+      renderRollupCard(item.fp, item.traces);
+      desired.push(rollupElements.get(item.fp));
+      // Detach individual elements for rolled-up traces
+      for (const t of item.traces) {
+        if (t.element && t.element.parentNode) t.element.parentNode.removeChild(t.element);
+      }
+    }
+  }
+
+  // Remove stale rollup elements
+  for (const [fp, el] of rollupElements) {
+    if (!activeRollups.has(fp) && el.parentNode) el.parentNode.removeChild(el);
+  }
+
+  // Reconcile DOM: only move elements whose position changed
+  const currentChildren = traceCards.children;
+  let insertIdx = 0;
+  for (const el of desired) {
+    if (currentChildren[insertIdx] !== el) {
+      // appendChild moves existing nodes; use insertBefore for precise placement
+      traceCards.insertBefore(el, currentChildren[insertIdx] || null);
+    }
+    insertIdx++;
+  }
+
+  bTraces.textContent = traceMap.size;
+}
+
+// ---- End trace card system ----
+
+function handleMessage(msg) {
+  let data;
+  try { data = JSON.parse(msg.data); } catch { return; }
+
+  // Update counters
+  cSpans.textContent = data.counters.spans;
+  cLogs.textContent = data.counters.logs;
+  cMetrics.textContent = data.counters.metrics;
+  cGen.textContent = data.generation;
+
+  // Process trace spans into trace cards
+  if (data.traces && data.traces.length > 0) {
+    for (const span of data.traces) {
+      addSpanToTrace(span);
+    }
+    evictOldTraces();
+    sortAndRenderTraceCards();
+  }
+
+  // Append logs with rollup
+  if (data.logs && data.logs.length > 0) {
+    for (const l of data.logs) {
+      logCount++;
+      const key = (l.service || '') + '|' + ((l.severity||'').toUpperCase()) + '|' + (l.body || '');
+      const sev = (l.severity||'').toUpperCase();
+
+      if (logRollup.has(key)) {
+        // Existing: bump count, update time, move to top
+        const entry = logRollup.get(key);
+        entry.count++;
+        entry.lastTime = l.time || entry.lastTime;
+        const countSpan = entry.tr.querySelector('.log-count');
+        if (countSpan) {
+          countSpan.textContent = '\u00d7' + entry.count;
+        } else {
+          const td = entry.tr.lastElementChild;
+          td.insertAdjacentHTML('beforeend', ' <span class="log-count">\u00d7' + entry.count + '</span>');
+        }
+        if (entry.lastTime) entry.tr.firstElementChild.textContent = entry.lastTime;
+        tLogs.insertBefore(entry.tr, tLogs.firstChild);
+        // LRU: move to end of map
+        logRollup.delete(key);
+        logRollup.set(key, entry);
+      } else {
+        // New unique log
+        const tr = document.createElement('tr');
+        tr.dataset.severity = sev;
+        if (sev === 'ERROR' || sev === 'FATAL') tr.classList.add('row-error');
+        tr.innerHTML =
+          '<td>' + esc(l.time) + '</td>' +
+          '<td>' + esc(l.service) + '</td>' +
+          '<td class="' + sevClass(l.severity) + '">' + esc(l.severity) + '</td>' +
+          '<td>' + esc(l.body) + '</td>';
+        tLogs.insertBefore(tr, tLogs.firstChild);
+        logRollup.set(key, { tr, count: 1, lastTime: l.time, service: l.service, severity: sev, body: l.body });
+
+        // Evict oldest if over LRU cap
+        if (logRollup.size > LOG_ROLLUP_CAP) {
+          const oldestKey = logRollup.keys().next().value;
+          const oldest = logRollup.get(oldestKey);
+          if (oldest.tr.parentNode) oldest.tr.parentNode.removeChild(oldest.tr);
+          logRollup.delete(oldestKey);
+        }
+      }
+    }
+  }
+
+  // Upsert metrics (one row per unique name)
+  if (data.metrics && data.metrics.length > 0) {
+    for (const m of data.metrics) {
+      const key = m.name;
+      if (metricRows.has(key)) {
+        // Update existing row in place
+        const entry = metricRows.get(key);
+        const cells = entry.tr.children;
+        cells[1].textContent = m.type;
+        cells[2].textContent = m.service;
+        cells[3].textContent = m.value;
+        cells[4].textContent = m.updated;
+        entry.lastUpdated = Date.now();
+        // Move to top
+        tMetrics.insertBefore(entry.tr, tMetrics.firstChild);
+      } else {
+        // New metric
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td>' + esc(m.name) + '</td>' +
+          '<td>' + esc(m.type) + '</td>' +
+          '<td>' + esc(m.service) + '</td>' +
+          '<td>' + esc(m.value) + '</td>' +
+          '<td>' + esc(m.updated) + '</td>';
+        tMetrics.insertBefore(tr, tMetrics.firstChild);
+        metricRows.set(key, { tr, lastUpdated: Date.now() });
+
+        // Evict least-recently-updated if over limit
+        if (metricRows.size > MAX_ROWS) {
+          let oldestKey = null, oldestTime = Infinity;
+          for (const [k, v] of metricRows) {
+            if (v.lastUpdated < oldestTime) { oldestTime = v.lastUpdated; oldestKey = k; }
+          }
+          if (oldestKey) {
+            const old = metricRows.get(oldestKey);
+            if (old.tr.parentNode) old.tr.parentNode.removeChild(old.tr);
+            metricRows.delete(oldestKey);
+          }
+        }
+      }
+    }
+  }
+
+  bLogs.textContent = logCount;
+  bMetrics.textContent = metricRows.size;
+
+  scheduleFilter();
+}
+
+// Refresh service list
+function refreshServices() {
+  fetch('/api/services')
+    .then(r => r.json())
+    .then(services => {
+      const current = serviceFilter.value;
+      while (serviceFilter.options.length > 1) serviceFilter.remove(1);
+      (services || []).forEach(svc => {
+        const opt = document.createElement('option');
+        opt.value = svc;
+        opt.textContent = svc;
+        serviceFilter.appendChild(opt);
+      });
+      serviceFilter.value = current;
+    })
+    .catch(err => console.warn('Failed to refresh services:', err));
+}
+refreshServices();
+setInterval(refreshServices, 10000);
+
+// WebSocket connection with exponential backoff reconnect
+let reconnectDelay = 1000;
+const RECONNECT_MAX = 30000;
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + '/ws');
+
+  ws.onopen = () => {
+    reconnectDelay = 1000; // Reset backoff on successful connection
+    statusDot.className = 'status-dot connected';
+    statusDot.title = 'Connected';
+    sendFilter();
+  };
+
+  ws.onmessage = handleMessage;
+
+  ws.onclose = () => {
+    statusDot.className = 'status-dot disconnected';
+    statusDot.title = 'Disconnected - reconnecting in ' + Math.round(reconnectDelay/1000) + 's...';
+    // Clear trace state on disconnect to avoid stale mixing with backfill
+    traceMap.clear();
+    rollupElements.clear();
+    traceCards.innerHTML = '';
+    logRollup.clear();
+    tLogs.innerHTML = '';
+    logCount = 0;
+    setTimeout(connect, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX);
+  };
+
+  ws.onerror = () => {
+    ws.close();
+  };
+}
+
+connect();
+
+})();
+</script>
+</body>
+</html>
