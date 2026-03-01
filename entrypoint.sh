@@ -49,4 +49,25 @@ OTELCOL_PID=$!
 while kill -0 "$OTLP_MCP_PID" 2>/dev/null && kill -0 "$OTELCOL_PID" 2>/dev/null; do
   sleep 1
 done
-cleanup
+
+# One of the processes has exited; capture its status and then shut down the other.
+STATUS=0
+if ! kill -0 "$OTLP_MCP_PID" 2>/dev/null; then
+  # otlp-mcp exited first
+  wait "$OTLP_MCP_PID"
+  STATUS=$?
+  if kill -0 "$OTELCOL_PID" 2>/dev/null; then
+    kill "$OTELCOL_PID" 2>/dev/null || true
+    wait "$OTELCOL_PID" 2>/dev/null || true
+  fi
+elif ! kill -0 "$OTELCOL_PID" 2>/dev/null; then
+  # otelcol exited first
+  wait "$OTELCOL_PID"
+  STATUS=$?
+  if kill -0 "$OTLP_MCP_PID" 2>/dev/null; then
+    kill "$OTLP_MCP_PID" 2>/dev/null || true
+    wait "$OTLP_MCP_PID" 2>/dev/null || true
+  fi
+fi
+
+exit "$STATUS"
