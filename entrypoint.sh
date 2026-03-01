@@ -14,6 +14,12 @@ if [ -f "${CONFIG_PATH}" ]; then
   CONFIG_FLAG="--config ${CONFIG_PATH}"
 fi
 
+# Watch /logs if mounted (e.g. -v /tank/otel:/logs:ro)
+FILE_SOURCE_FLAG=""
+if [ -d "/logs" ]; then
+  FILE_SOURCE_FLAG="--file-source /logs"
+fi
+
 # shellcheck disable=SC2329  # invoked via trap
 cleanup() {
   echo "Shutting down..."
@@ -25,7 +31,7 @@ trap cleanup TERM INT
 
 # Start otlp-mcp in background
 echo "Starting otlp-mcp (MCP HTTP: :${MCP_PORT}, OTLP gRPC: :${OTLP_PORT})"
-# shellcheck disable=SC2086  # intentional word splitting on CONFIG_FLAG/STATELESS_FLAG
+# shellcheck disable=SC2086  # intentional word splitting on flag vars
 otlp-mcp serve \
   --transport http \
   --http-host 0.0.0.0 \
@@ -34,7 +40,8 @@ otlp-mcp serve \
   --otlp-port "${OTLP_PORT}" \
   --verbose \
   ${CONFIG_FLAG} \
-  ${STATELESS_FLAG} &
+  ${STATELESS_FLAG} \
+  ${FILE_SOURCE_FLAG} &
 OTLP_MCP_PID=$!
 
 # Wait for otlp-mcp to be ready. 1s is sufficient — it binds quickly and
