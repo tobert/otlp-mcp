@@ -6,7 +6,7 @@ FROM otel/opentelemetry-collector:0.146.1 AS otelcol
 
 # Create user files in a native-arch stage (avoids qemu for cross builds).
 # BUILDPLATFORM is always the host arch, so this RUN executes natively.
-ARG BUILDPLATFORM=linux/amd64
+ARG BUILDPLATFORM
 FROM --platform=${BUILDPLATFORM} alpine:3.21 AS usersetup
 RUN addgroup -g 4317 -S otlp && adduser -u 4317 -S otlp -G otlp
 
