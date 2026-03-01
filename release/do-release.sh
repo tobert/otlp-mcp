@@ -93,18 +93,16 @@ for PLAT in $PLATFORMS; do
   $CTR push "${REGISTRY}:${ARCH_TAG}"
 done
 
-# Step 5: Create and push multi-arch manifest.
-echo "==> Creating manifest ${REGISTRY}:${TAG}..."
-$CTR manifest create "${REGISTRY}:${TAG}" \
-  "${REGISTRY}:${TAG}-linux-amd64" \
-  "${REGISTRY}:${TAG}-linux-arm64"
-$CTR manifest push "${REGISTRY}:${TAG}" "docker://${REGISTRY}:${TAG}"
-
-echo "==> Creating manifest ${REGISTRY}:latest..."
-$CTR manifest create "${REGISTRY}:latest" \
-  "${REGISTRY}:${TAG}-linux-amd64" \
-  "${REGISTRY}:${TAG}-linux-arm64"
-$CTR manifest push "${REGISTRY}:latest" "docker://${REGISTRY}:latest"
+# Step 5: Create and push multi-arch manifests.
+# Remove existing local manifests/tags to avoid podman "already in use" errors.
+for MTAG in "${TAG}" "latest"; do
+  echo "==> Creating manifest ${REGISTRY}:${MTAG}..."
+  $CTR rmi "${REGISTRY}:${MTAG}" 2>/dev/null || true
+  $CTR manifest create "${REGISTRY}:${MTAG}" \
+    "${REGISTRY}:${TAG}-linux-amd64" \
+    "${REGISTRY}:${TAG}-linux-arm64"
+  $CTR manifest push "${REGISTRY}:${MTAG}" "docker://${REGISTRY}:${MTAG}"
+done
 
 echo "==> Done! Release ${TAG} published."
 echo "    GitHub: https://github.com/tobert/otlp-mcp/releases/tag/${TAG}"
