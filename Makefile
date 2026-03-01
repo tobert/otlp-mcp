@@ -15,7 +15,7 @@ CONFIG_MOUNT := $(if $(wildcard $(CONFIG_FILE)),-v "$(PWD)/$(CONFIG_FILE)":/etc/
 OTEL_IMAGE := otel/opentelemetry-collector:0.146.1
 IMAGE_NAME := otlp-mcp
 
-.PHONY: help build-local test fmt vet build run run-bg serve proxy release-snapshot
+.PHONY: help build-local test fmt vet build run run-bg serve proxy release-snapshot release
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -46,7 +46,10 @@ build: ## Build all-in-one Docker image (proxy + otlp-mcp)
 	docker build -t $(IMAGE_NAME) .
 
 release-snapshot: ## Build release artifacts locally (no push, no tag)
-	goreleaser release --snapshot --clean
+	goreleaser release --snapshot --clean --skip=docker
+
+release: ## Full release: binaries, packages, Docker images (requires git tag)
+	./release/do-release.sh
 
 run: ## Run all-in-one container (proxy + otlp-mcp)
 	@echo "Starting all-in-one container..."
