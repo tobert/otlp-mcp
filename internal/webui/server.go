@@ -15,6 +15,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/tobert/otlp-mcp/internal/storage"
+	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
 //go:embed static/index.html
@@ -70,6 +71,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/services", securityHeaders(s.handleServices))
 	mux.HandleFunc("GET /api/status", securityHeaders(s.handleStatus))
 	mux.HandleFunc("GET /api/query", securityHeaders(s.handleQuery))
+	mux.HandleFunc("GET /api/trace/{traceId}", securityHeaders(s.handleTrace))
 	mux.HandleFunc("GET /ws", s.handleWebSocket)
 }
 
@@ -444,6 +446,166 @@ func formatNanoTime(nanos uint64) string {
 	}
 	t := time.Unix(0, int64(nanos))
 	return t.Format("15:04:05.000")
+}
+
+// spanDetail is the JSON-friendly representation of a full span with attributes, events, and links.
+type spanDetail struct {
+	TraceID       string         `json:"trace_id"`
+	SpanID        string         `json:"span_id"`
+	ParentSpanID  string         `json:"parent_span_id,omitempty"`
+	ServiceName   string         `json:"service_name"`
+	SpanName      string         `json:"span_name"`
+	Kind          string         `json:"kind"`
+	StartNs       uint64         `json:"start_ns"`
+	EndNs         uint64         `json:"end_ns"`
+	DurationMs    float64        `json:"duration_ms"`
+	Status        string         `json:"status"`
+	StatusMessage string         `json:"status_message,omitempty"`
+	Attributes    map[string]any `json:"attributes"`
+	ResourceAttrs map[string]any `json:"resource_attributes"`
+	Events        []spanEvent    `json:"events,omitempty"`
+	Links         []spanLink     `json:"links,omitempty"`
+}
+
+type spanEvent struct {
+	Name       string         `json:"name"`
+	TimeNs     uint64         `json:"time_ns"`
+	Attributes map[string]any `json:"attributes"`
+}
+
+type spanLink struct {
+	TraceID    string         `json:"trace_id"`
+	SpanID     string         `json:"span_id"`
+	Attributes map[string]any `json:"attributes"`
+}
+
+// handleTrace returns full span details for a single trace.
+func (s *Server) handleTrace(w http.ResponseWriter, r *http.Request) {
+	traceID := r.PathValue("traceId")
+	if traceID == "" {
+		http.Error(w, "trace_id required", http.StatusBadRequest)
+		return
+	}
+
+	spans := s.storage.Traces().GetSpansByTraceID(traceID)
+	if len(spans) == 0 {
+		writeJSON(w, []spanDetail{})
+		return
+	}
+
+	details := make([]spanDetail, 0, len(spans))
+	for _, stored := range spans {
+		if stored.Span == nil {
+			continue
+		}
+		sp := stored.Span
+
+		parentSpanID := ""
+		if len(sp.ParentSpanId) > 0 {
+			parentSpanID = fmt.Sprintf("%x", sp.ParentSpanId)
+		}
+
+		status := "UNSET"
+		statusMsg := ""
+		if sp.Status != nil {
+			switch sp.Status.Code {
+			case 1:
+				status = "OK"
+			case 2:
+				status = "ERROR"
+			}
+			statusMsg = sp.Status.Message
+		}
+
+		durationNs := sp.EndTimeUnixNano - sp.StartTimeUnixNano
+
+		d := spanDetail{
+			TraceID:       stored.TraceID,
+			SpanID:        stored.SpanID,
+			ParentSpanID:  parentSpanID,
+			ServiceName:   stored.ServiceName,
+			SpanName:      stored.SpanName,
+			Kind:          strings.TrimPrefix(sp.Kind.String(), "SPAN_KIND_"),
+			StartNs:       sp.StartTimeUnixNano,
+			EndNs:         sp.EndTimeUnixNano,
+			DurationMs:    float64(durationNs) / 1e6,
+			Status:        status,
+			StatusMessage: statusMsg,
+			Attributes:    extractAttrs(sp.Attributes),
+			ResourceAttrs: make(map[string]any),
+		}
+
+		// Extract resource attributes
+		if stored.ResourceSpan != nil && stored.ResourceSpan.Resource != nil {
+			d.ResourceAttrs = extractAttrs(stored.ResourceSpan.Resource.Attributes)
+		}
+
+		// Extract events
+		for _, ev := range sp.Events {
+			d.Events = append(d.Events, spanEvent{
+				Name:       ev.Name,
+				TimeNs:     ev.TimeUnixNano,
+				Attributes: extractAttrs(ev.Attributes),
+			})
+		}
+
+		// Extract links
+		for _, lk := range sp.Links {
+			d.Links = append(d.Links, spanLink{
+				TraceID:    fmt.Sprintf("%x", lk.TraceId),
+				SpanID:     fmt.Sprintf("%x", lk.SpanId),
+				Attributes: extractAttrs(lk.Attributes),
+			})
+		}
+
+		details = append(details, d)
+	}
+
+	writeJSON(w, details)
+}
+
+// extractAttrs converts protobuf KeyValue attributes to a JSON-friendly map.
+func extractAttrs(attrs []*commonpb.KeyValue) map[string]any {
+	m := make(map[string]any, len(attrs))
+	for _, kv := range attrs {
+		m[kv.Key] = formatAttrValue(kv.Value, 0)
+	}
+	return m
+}
+
+const maxAttrDepth = 10
+
+// formatAttrValue converts a protobuf AnyValue to a Go any type for JSON serialization.
+func formatAttrValue(v *commonpb.AnyValue, depth int) any {
+	if v == nil || depth >= maxAttrDepth {
+		return nil
+	}
+	switch val := v.Value.(type) {
+	case *commonpb.AnyValue_StringValue:
+		return val.StringValue
+	case *commonpb.AnyValue_IntValue:
+		return val.IntValue
+	case *commonpb.AnyValue_DoubleValue:
+		return val.DoubleValue
+	case *commonpb.AnyValue_BoolValue:
+		return val.BoolValue
+	case *commonpb.AnyValue_ArrayValue:
+		result := make([]any, len(val.ArrayValue.Values))
+		for i, elem := range val.ArrayValue.Values {
+			result[i] = formatAttrValue(elem, depth+1)
+		}
+		return result
+	case *commonpb.AnyValue_KvlistValue:
+		result := make(map[string]any)
+		for _, kv := range val.KvlistValue.Values {
+			result[kv.Key] = formatAttrValue(kv.Value, depth+1)
+		}
+		return result
+	case *commonpb.AnyValue_BytesValue:
+		return fmt.Sprintf("%x", val.BytesValue)
+	default:
+		return nil
+	}
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
