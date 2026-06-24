@@ -111,14 +111,12 @@ continue.
 
 ## Commit style
 
-Commits explain **why, not what** — the diff already shows what changed. Write the body
-as a short summary of the decisions behind the change, **drawn from the working
-conversation with the user**: what we chose, what we rejected, and why. A few sentences
-of reasoning beat a list of files.
+Commit and pull request bodies should usually summarize the decisions behind the
+change, **drawn from the conversation with the user**. Commit messages briefly explain
+what happened as context for the more important task of explaining the decisions we
+made.
 
-- **Subject:** imperative — the decision or outcome, not "update X".
-- **Body:** the reasoning and tradeoffs; cite a decision's source when it matters.
-- Set a `Co-Authored-By:` trailer crediting the model that did the work.
+Set a `Co-Authored-By:` trailer crediting the model that did the work.
 
 ## License
 
