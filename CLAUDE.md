@@ -1,1 +1,1 @@
-BOTS.md
+AGENTS.md
