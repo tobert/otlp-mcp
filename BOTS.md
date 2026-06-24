@@ -109,6 +109,17 @@ different question. Keep them current *as you go*, not at the end.
 When handing off, commit the durable docs and push to a branch so the next session can
 continue.
 
+## Commit style
+
+Commits explain **why, not what** — the diff already shows what changed. Write the body
+as a short summary of the decisions behind the change, **drawn from the working
+conversation with the user**: what we chose, what we rejected, and why. A few sentences
+of reasoning beat a list of files.
+
+- **Subject:** imperative — the decision or outcome, not "update X".
+- **Body:** the reasoning and tradeoffs; cite a decision's source when it matters.
+- Set a `Co-Authored-By:` trailer crediting the model that did the work.
+
 ## License
 
 Apache License 2.0 - Copyright (c) 2025 Amy Tobey
