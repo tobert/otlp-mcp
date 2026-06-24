@@ -95,23 +95,21 @@ Co-Authored-By: Claude <claude@anthropic.com>
 Co-Authored-By: Gemini <gemini@google.com>
 ```
 
-## Working Notes (three-file pattern)
+## Working Notes
 
-Three markdown files carry work across sessions — each answers a different question.
-Keep them current *as you go*, not at the end.
+Two committed markdown files carry durable work across sessions — each answers a
+different question. Keep them current *as you go*, not at the end.
 
-- **`signoff.md`** (repo root, *ephemeral — not committed*) — *what were we just
-  doing, and what's next?* The living handoff a fresh process can't reconstruct.
-  Melt it into the two durable docs and delete it once its content has a home.
-- **`docs/issues.md`** (committed) — *what's not in the code yet?* The open-work
-  backlog: record out-of-scope work here before moving on, and **delete an entry when
-  it ships** (move the story to the devlog if it's worth keeping). Code is truth.
-- **`docs/devlog.md`** (committed) — *how did we get here, and why?* Narrative of
-  landed work and the decisions behind it. Not authoritative — `git log` and the
-  design docs are — this is the story, newest-first, dated when it landed.
+- **`docs/issues.md`** — *what's not in the code yet?* The open-work backlog: record
+  out-of-scope side quests here before moving on, and **delete an entry when it ships**
+  (move the story to the devlog if it's worth keeping). Code is truth.
+- **`docs/devlog.md`** — *how did we get here, and why?* Durable narrative of landed
+  work and the decisions behind it, from the agent's perspective. Not authoritative —
+  `git log` and the design docs are — this is the story, newest-first, dated when it
+  landed.
 
-When handing off: update `signoff.md` from the real conversation, commit the durable
-docs, and push to a branch so the next session can continue.
+When handing off, commit the durable docs and push to a branch so the next session can
+continue.
 
 ## License
 
