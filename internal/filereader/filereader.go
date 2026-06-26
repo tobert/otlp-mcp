@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -54,14 +55,23 @@ type FileSource struct {
 
 	watcher *fsnotify.Watcher
 
-	// Track file read positions to only read new data
-	mu          sync.Mutex
-	fileOffsets map[string]int64
+	// Track file read positions to only read new data. Keyed by path; each
+	// entry also remembers the inode so we can detect rotation (the collector
+	// renames the active file out and creates a fresh one at the same path).
+	mu         sync.Mutex
+	fileStates map[string]fileState
 
 	// Control
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+}
+
+// fileState records where we left off in a tailed file. The inode lets us
+// distinguish "the same file grew" from "a new file was rotated into this path".
+type fileState struct {
+	inode  uint64
+	offset int64
 }
 
 // Config holds configuration for a FileSource.
@@ -118,7 +128,7 @@ func New(cfg Config, storage StorageReceiver) (*FileSource, error) {
 		logCapacity:    cfg.LogCapacity,
 		metricCapacity: cfg.MetricCapacity,
 		watcher:        watcher,
-		fileOffsets:    make(map[string]int64),
+		fileStates:     make(map[string]fileState),
 		ctx:            ctx,
 		cancel:         cancel,
 	}, nil
@@ -311,20 +321,57 @@ func (fs *FileSource) loadMetricFile(ctx context.Context, path string, capacity 
 // approximately the last `capacity` lines, avoiding parsing data that would be evicted
 // from ring buffers anyway. Returns the number of lines processed.
 func (fs *FileSource) processFile(ctx context.Context, path string, capacity int, handler func([]byte) error) (int, error) {
-	fs.mu.Lock()
-	offset := fs.fileOffsets[path]
-	fs.mu.Unlock()
-
 	file, err := os.Open(path)
 	if err != nil {
 		return 0, err
 	}
 	defer file.Close()
 
-	// Tail-seek optimization: on first read with known capacity, skip to the
-	// tail of the file. We only need ~capacity lines since that's all the
-	// ring buffer can hold.
-	if offset == 0 && capacity > 0 {
+	info, err := file.Stat()
+	if err != nil {
+		return 0, err
+	}
+	inode := fileInode(info)
+	size := info.Size()
+
+	fs.mu.Lock()
+	prev, known := fs.fileStates[path]
+	fs.mu.Unlock()
+
+	// Decide where to start reading. The collector rotates by renaming the
+	// active file out and creating a fresh one at the same path, so a path-keyed
+	// offset goes stale: it points past the end of the new (smaller) file and we
+	// silently skip everything until the file grows back past it. Detect that by
+	// watching the inode and size, and reset to 0 when the file is replaced or
+	// truncated. This is the tail -F (follow by name) vs tail -f distinction.
+	var offset int64
+	switch {
+	case !known:
+		offset = 0
+	case prev.inode != 0 && inode != 0 && prev.inode != inode:
+		// New inode at the same path: the file was rotated/replaced.
+		if fs.verbose {
+			log.Printf("📁 FileSource: %s rotated (inode %d→%d), reading from start\n",
+				filepath.Base(path), prev.inode, inode)
+		}
+		offset = 0
+	case size < prev.offset:
+		// File shrank below where we left off: truncated or a fresh file at the
+		// same path that the inode check missed (e.g. inode reuse).
+		if fs.verbose {
+			log.Printf("📁 FileSource: %s shrank (size %d < offset %d), reading from start\n",
+				filepath.Base(path), size, prev.offset)
+		}
+		offset = 0
+	default:
+		offset = prev.offset
+	}
+
+	// Tail-seek optimization: on the first read of a file with known capacity,
+	// skip to the tail. We only need ~capacity lines since that's all the ring
+	// buffer can hold. Only applies on first sighting (not after a rotation
+	// reset), so we never skip a fresh file's contents.
+	if !known && capacity > 0 {
 		offset = fs.estimateTailOffset(file, capacity)
 	}
 
@@ -372,10 +419,20 @@ func (fs *FileSource) processFile(ctx context.Context, path string, capacity int
 	// Update offset
 	newOffset, _ := file.Seek(0, io.SeekCurrent)
 	fs.mu.Lock()
-	fs.fileOffsets[path] = newOffset
+	fs.fileStates[path] = fileState{inode: inode, offset: newOffset}
 	fs.mu.Unlock()
 
 	return count, nil
+}
+
+// fileInode extracts the inode number from a stat result, or 0 if unavailable
+// (the platform doesn't expose it). Inode changes signal that a new file has
+// replaced one we were tailing. Works on Linux and Darwin (the release targets).
+func fileInode(info os.FileInfo) uint64 {
+	if st, ok := info.Sys().(*syscall.Stat_t); ok {
+		return uint64(st.Ino)
+	}
+	return 0
 }
 
 // estimateTailOffset calculates a byte offset to seek to for reading approximately
@@ -513,7 +570,7 @@ type Stats struct {
 // Stats returns current statistics.
 func (fs *FileSource) Stats() Stats {
 	fs.mu.Lock()
-	filesTracked := len(fs.fileOffsets)
+	filesTracked := len(fs.fileStates)
 	fs.mu.Unlock()
 
 	return Stats{
