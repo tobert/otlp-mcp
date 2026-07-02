@@ -105,25 +105,55 @@ tr.row-error{background:rgba(247,118,142,.06)}
 .trace-card-header .span-count{color:var(--fg2);min-width:50px;text-align:right}
 .trace-card-header .trace-status{min-width:40px;text-align:right}
 .trace-card-body{
-  max-height:400px;overflow:auto;padding:0 12px 8px 12px;
+  max-height:600px;overflow:auto;padding:0 12px 8px 12px;
   border-top:1px solid var(--border);background:rgba(0,0,0,.15);
 }
 .trace-card-body.hidden{display:none}
 .trace-single-span{padding:8px 0;font-size:12px;color:var(--fg2)}
 
-/* SVG swimlane */
-.swimlane-svg{display:block}
-.swimlane-svg text{font-family:var(--font);font-size:11px;fill:var(--fg)}
-.swimlane-svg .lane-line{stroke:var(--border);stroke-width:1;stroke-dasharray:4,3}
-.swimlane-svg .svc-label{font-size:11px;font-weight:600;fill:var(--info)}
-.swimlane-svg .span-bar{stroke-width:0;rx:2}
-.swimlane-svg .span-label{font-size:10px;fill:var(--fg)}
-.swimlane-svg .span-dur{font-size:9px;fill:var(--fg2)}
-.swimlane-svg .connector{stroke:var(--fg2);stroke-width:1;stroke-dasharray:3,2;fill:none}
-.swimlane-svg .cross-arrow{stroke:var(--fg);stroke-width:1.5;fill:none}
-.swimlane-svg .cross-arrow.error{stroke:var(--err)}
-.swimlane-svg .arrowhead{fill:var(--fg)}
-.swimlane-svg .arrowhead.error{fill:var(--err)}
+/* Horizontal timeline */
+.timeline-container{position:relative;overflow:auto;min-height:60px}
+.timeline-ruler{position:sticky;top:0;z-index:3;height:22px;background:var(--bg2);border-bottom:1px solid var(--border);min-width:100%}
+.timeline-ruler .tick{position:absolute;top:0;height:100%;border-left:1px solid var(--border);padding-left:4px;font-size:9px;color:var(--fg2);line-height:22px;white-space:nowrap}
+.timeline-lanes{position:relative;min-width:100%}
+.timeline-lane{display:flex;border-bottom:1px solid var(--border);min-height:28px}
+.timeline-lane:last-child{border-bottom:none}
+.lane-header{position:sticky;left:0;z-index:2;width:120px;min-width:120px;padding:4px 8px;font-size:11px;font-weight:600;color:var(--info);background:var(--bg2);border-right:1px solid var(--border);display:flex;align-items:flex-start;word-break:break-all}
+.lane-body{position:relative;flex:1}
+.span-bar{position:absolute;height:18px;border-radius:2px;cursor:pointer;opacity:0.8;transition:opacity .1s;overflow:hidden;display:flex;align-items:center;padding:0 4px;font-size:10px;color:var(--fg);white-space:nowrap}
+.span-bar:hover{opacity:1;z-index:1}
+.span-bar.selected{opacity:1;outline:2px solid var(--fg);outline-offset:-1px;z-index:2}
+.span-bar .bar-label{overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.span-bar .bar-dur{margin-left:auto;font-size:9px;color:rgba(255,255,255,.7);pointer-events:none;padding-left:4px}
+.connector-overlay{position:absolute;top:0;left:0;pointer-events:none;z-index:1;overflow:visible}
+.connector-overlay path{fill:none;stroke:var(--fg2);stroke-width:1}
+.connector-overlay path.cross{stroke:var(--fg);stroke-width:1.5}
+.connector-overlay path.error{stroke:var(--err)}
+.connector-overlay marker polygon{fill:var(--fg)}
+.connector-overlay marker.err polygon{fill:var(--err)}
+.timeline-crosshair{position:absolute;top:0;width:1px;background:var(--info);opacity:0.4;pointer-events:none;z-index:4}
+.timeline-crosshair-label{position:absolute;top:-20px;transform:translateX(-50%);font-size:9px;color:var(--info);white-space:nowrap;pointer-events:none;z-index:4}
+
+/* Span detail panel */
+.span-detail-panel{padding:8px 12px;border-top:1px solid var(--border);max-height:250px;overflow-y:auto;background:var(--bg2)}
+.span-detail-panel .detail-header{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.span-detail-panel .detail-header .detail-name{font-weight:600;color:var(--fg)}
+.span-detail-panel .detail-header .detail-badge{font-size:10px;padding:1px 6px;border-radius:3px;background:var(--bg3);color:var(--fg2)}
+.span-detail-panel .detail-close{margin-left:auto;cursor:pointer;color:var(--fg2);font-size:14px;padding:0 4px}
+.span-detail-panel .detail-close:hover{color:var(--fg)}
+.span-detail-panel .detail-timing{font-size:11px;color:var(--fg2);margin-bottom:6px}
+.span-detail-panel .detail-section{margin-top:6px}
+.span-detail-panel .detail-section-title{font-size:10px;font-weight:600;color:var(--fg2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px}
+.detail-table{width:100%;border-collapse:collapse}
+.detail-table td{padding:2px 8px;font-size:11px;border-bottom:1px solid var(--border);vertical-align:top;word-break:break-all;white-space:normal}
+.detail-table td:first-child{color:var(--info);width:30%;white-space:nowrap;word-break:normal}
+.detail-event{font-size:11px;padding:2px 0;border-bottom:1px solid var(--border)}
+.detail-event .ev-time{color:var(--fg2);margin-right:8px}
+.detail-event .ev-name{color:var(--fg)}
+
+/* Collapse toggle on span bars */
+.span-collapse-toggle{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;font-size:8px;color:var(--fg2);cursor:pointer;flex-shrink:0;margin-right:2px;pointer-events:auto}
+.span-collapse-toggle:hover{color:var(--fg)}
 
 /* Rollup styles */
 .trace-card.rollup{opacity:0.85}
@@ -187,7 +217,13 @@ tr.row-error{background:rgba(247,118,142,.06)}
   </div>
 </div>
 
-<script>
+<script type="module">
+import {
+  SVC_COLORS, MAX_MINI_ROWS, ns, cmpNs, traceBounds, serviceOrder,
+  hiddenDescendants, childCounts, positionSpans, packRows,
+  computeTimelineLayout, pickTickStep,
+} from './timeline.mjs';
+
 (function(){
 'use strict';
 
@@ -208,6 +244,9 @@ const logRollup = new Map();
 
 // Metric dedup: name -> { tr, lastUpdated }
 const metricRows = new Map();
+
+// Trace detail cache: traceId -> [spanDetail, ...]
+const traceDetailCache = new Map();
 
 // DOM refs
 const $ = id => document.getElementById(id);
@@ -369,83 +408,35 @@ function addSpanToTrace(span) {
   return trace;
 }
 
+// traceSpanList returns the trace's spans as a plain array for the geometry module.
+function traceSpanList(trace) {
+  return [...trace.spans.values()];
+}
+
 function recalcTrace(trace) {
-  let minStart = Infinity, maxEnd = 0;
+  const spans = traceSpanList(trace);
+
+  // Root span name: prefer a parentless span, else the earliest span.
   let rootSpan = null;
-
-  for (const span of trace.spans.values()) {
+  for (const span of spans) {
     if (!span.parent_span_id) rootSpan = span;
-    if (span.start_ns && span.start_ns < minStart) minStart = span.start_ns;
-    if (span.end_ns && span.end_ns > maxEnd) maxEnd = span.end_ns;
   }
-
   if (rootSpan) {
     trace.rootSpanName = rootSpan.span_name;
   } else {
-    // Pick the earliest span as pseudo-root
     let earliest = null;
-    for (const span of trace.spans.values()) {
-      if (!earliest || span.start_ns < earliest.start_ns) earliest = span;
+    for (const span of spans) {
+      if (!earliest || cmpNs(span.start_ns, earliest.start_ns) < 0) earliest = span;
     }
     if (earliest) trace.rootSpanName = earliest.span_name;
   }
 
-  trace.minStartNs = minStart < Infinity ? minStart : 0;
-  trace.maxEndNs = maxEnd;
-  if (minStart < Infinity && maxEnd > 0) {
-    trace.totalDurationMs = (maxEnd - minStart) / 1e6;
-  }
-}
-
-// BFS service ordering from root span
-function getServiceOrder(trace) {
-  const order = [];
-  const seen = new Set();
-  const spanById = trace.spans;
-
-  // Find root span(s)
-  const roots = [];
-  for (const span of spanById.values()) {
-    if (!span.parent_span_id) roots.push(span);
-  }
-  // If no root, use earliest span
-  if (roots.length === 0) {
-    let earliest = null;
-    for (const span of spanById.values()) {
-      if (!earliest || span.start_ns < earliest.start_ns) earliest = span;
-    }
-    if (earliest) roots.push(earliest);
-  }
-
-  // Build child lookup for O(n) BFS instead of O(n^2)
-  const childrenOf = new Map();
-  for (const span of spanById.values()) {
-    if (span.parent_span_id) {
-      if (!childrenOf.has(span.parent_span_id)) childrenOf.set(span.parent_span_id, []);
-      childrenOf.get(span.parent_span_id).push(span);
-    }
-  }
-
-  // BFS
-  const queue = [...roots];
-  while (queue.length > 0) {
-    const span = queue.shift();
-    if (!seen.has(span.service)) {
-      seen.add(span.service);
-      order.push(span.service);
-    }
-    const children = childrenOf.get(span.span_id) || [];
-    queue.push(...children);
-  }
-
-  // Append orphan services
-  for (const svc of trace.services) {
-    if (!seen.has(svc)) {
-      order.push(svc);
-    }
-  }
-
-  return order;
+  // Bounds are BigInt nanoseconds; totalDurationMs is the only Number form we keep.
+  const b = traceBounds(spans);
+  trace.bounds = b;
+  trace.minStartNs = b.minStart; // BigInt
+  trace.maxEndNs = b.maxEnd;     // BigInt
+  trace.totalDurationMs = Number(b.duration) / 1e6;
 }
 
 // Trace rollup: fingerprint by sorted (service, span_name) pairs
@@ -475,8 +466,8 @@ function renderRollupCard(fp, traces) {
   const ago = Math.round((Date.now() - latest.lastActivity) / 1000);
   const agoStr = ago < 60 ? ago + 's ago' : Math.round(ago / 60) + 'm ago';
 
-  const serviceOrder = getServiceOrder(latest);
-  const chainHtml = serviceOrder.map(s => esc(s)).join('<span class="svc-arrow">\u2192</span>');
+  const svcOrder = serviceOrder(traceSpanList(latest));
+  const chainHtml = svcOrder.map(s => esc(s)).join('<span class="svc-arrow">\u2192</span>');
   const spanNames = [...new Set([...latest.spans.values()].map(s => s.span_name))].join(', ');
 
   header.innerHTML =
@@ -491,60 +482,30 @@ function renderRollupCard(fp, traces) {
   card.classList.toggle('has-error', traces.some(t => t.hasError));
 }
 
-// Service color palette for mini waterfall
-const SVC_COLORS = ['#7aa2f7','#bb9af7','#ff9e64','#9ece6a','#f7768e','#7dcfff','#e0af68','#73daca'];
-
 function renderMiniWaterfallSvg(trace) {
-  const range = trace.maxEndNs - trace.minStartNs;
-  if (!range || trace.spans.size === 0) return '';
+  const spans = traceSpanList(trace);
+  const bounds = trace.bounds || traceBounds(spans);
+  if (bounds.duration <= 0n || spans.length === 0) return '';
 
   const VW = 1000; // viewBox width
   const VH = 16;   // viewBox height
-  const MAX_MINI_ROWS = 4;
 
-  // Assign colors by service order
-  const serviceOrder = getServiceOrder(trace);
+  // Color lanes by BFS service order (shared with the full timeline).
+  const order = serviceOrder(spans);
   const svcColor = new Map();
-  serviceOrder.forEach((svc, i) => svcColor.set(svc, SVC_COLORS[i % SVC_COLORS.length]));
+  order.forEach((svc, i) => svcColor.set(svc, SVC_COLORS[i % SVC_COLORS.length]));
 
-  // Sort spans by start time
-  const sorted = [...trace.spans.values()].sort((a, b) => (a.start_ns || 0) - (b.start_ns || 0));
+  // Shared geometry: position in viewBox units, pack into a capped row count.
+  const positioned = positionSpans(spans, { width: VW, minBarW: 2, bounds });
+  const { items, rowCount } = packRows(positioned, { gap: 0, maxRows: MAX_MINI_ROWS });
 
-  // Greedy row packing: assign each span to first row where it fits
-  const rowEnds = []; // tracks end position of last span on each row
-  const assignments = [];
-  for (const span of sorted) {
-    const x = ((span.start_ns - trace.minStartNs) / range) * VW;
-    let w = ((span.end_ns - span.start_ns) / range) * VW;
-    if (w < 2) w = 2; // minimum visible width
-
-    let row = -1;
-    for (let r = 0; r < rowEnds.length && r < MAX_MINI_ROWS; r++) {
-      if (rowEnds[r] <= x) { row = r; break; }
-    }
-    if (row === -1) {
-      if (rowEnds.length < MAX_MINI_ROWS) {
-        row = rowEnds.length;
-        rowEnds.push(0);
-      } else {
-        // Overflow: pack into row with earliest end
-        row = 0;
-        for (let r = 1; r < MAX_MINI_ROWS; r++) {
-          if (rowEnds[r] < rowEnds[row]) row = r;
-        }
-      }
-    }
-    rowEnds[row] = x + w + 1;
-    assignments.push({ span, x, w, row });
-  }
-
-  const numRows = Math.min(rowEnds.length, MAX_MINI_ROWS);
+  const numRows = Math.min(rowCount, MAX_MINI_ROWS);
   const barH = Math.max(1, Math.floor((VH - (numRows - 1)) / numRows));
   const gap = numRows > 1 ? Math.max(1, Math.floor((VH - numRows * barH) / (numRows - 1))) : 0;
 
   let rects = '';
-  for (const { span, x, w, row } of assignments) {
-    const y = row * (barH + gap);
+  for (const { span, x, w, subRow } of items) {
+    const y = subRow * (barH + gap);
     const color = span.status === 'ERROR' ? '#f7768e' : (svcColor.get(span.service) || '#7aa2f7');
     rects += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + barH + '" fill="' + color + '" rx="1"/>';
   }
@@ -576,8 +537,8 @@ function renderTraceCard(trace) {
   }
 
   // Update header content
-  const serviceOrder = getServiceOrder(trace);
-  const chainHtml = serviceOrder.map(s => esc(s)).join('<span class="svc-arrow">\u2192</span>');
+  const svcOrder = serviceOrder(traceSpanList(trace));
+  const chainHtml = svcOrder.map(s => esc(s)).join('<span class="svc-arrow">\u2192</span>');
   const statusStr = trace.hasError ? 'ERROR' : 'OK';
 
   const header = trace.element.querySelector('.trace-card-header');
@@ -618,181 +579,468 @@ function updateTraceCardBody(trace) {
     return;
   }
 
-  // Render SVG swimlane
+  // Skip re-render if span count unchanged (avoid flicker during live updates)
+  if (trace._lastRenderedSpanCount === trace.spans.size && body.querySelector('.timeline-container')) {
+    return;
+  }
+  trace._lastRenderedSpanCount = trace.spans.size;
+
+  const scrollLeft = body.scrollLeft;
+  const scrollTop = body.scrollTop;
   body.innerHTML = '';
-  body.appendChild(renderSwimlane(trace));
+  body.appendChild(renderTimeline(trace));
+  body.scrollLeft = scrollLeft;
+  body.scrollTop = scrollTop;
 }
 
-function renderSwimlane(trace) {
-  const SVG_NS = 'http://www.w3.org/2000/svg';
-  const COL_WIDTH = 160;
-  const ROW_HEIGHT = 26;
-  const HEADER_HEIGHT = 28;
-  const LEFT_PAD = 16;
-  const TOP_PAD = 6;
-  const BAR_MAX_W = COL_WIDTH - 24;
-  const BAR_H = 14;
+// ---- Horizontal Timeline Renderer ----
 
-  const serviceOrder = getServiceOrder(trace);
-  const svcIndex = new Map();
-  serviceOrder.forEach((svc, i) => svcIndex.set(svc, i));
+function renderTimeline(trace) {
+  const LANE_HEADER_W = 120;
+  const ROW_H = 22;
+  const LANE_PAD = 4;
+  const BAR_H = 18;     // visual bar height (CSS .span-bar)
+  const MIN_BAR_W = 3;
 
-  // Assign colors
+  const allSpans = traceSpanList(trace);
+
+  // Collapse state → hidden descendants. Toggles still need the full child
+  // count, so compute that over every span, not just the visible ones.
+  const collapsedSpans = trace.collapsedSpans || new Set();
+  const hiddenSpans = hiddenDescendants(allSpans, collapsedSpans);
+  const visibleSpans = allSpans.filter(sp => !hiddenSpans.has(sp.span_id));
+  const childCount = childCounts(allSpans);
+
+  // Timeline pixel width — fit the container, expand only for dense traces.
+  const containerWidth = trace.element ? trace.element.offsetWidth - 40 : 600;
+  const timelineW = Math.max(400, containerWidth - LANE_HEADER_W - 20);
+
+  // Geometry: x is header-agnostic (0 == trace start). The lane-header gutter is
+  // added back only in lanesDiv-space coordinates (ruler ticks, connectors).
+  const layout = computeTimelineLayout(visibleSpans, { width: timelineW, minBarW: MIN_BAR_W, gap: 1 });
+  const traceRange = Number(layout.bounds.duration);
+  const pxPerNs = traceRange > 0 ? timelineW / traceRange : 1;
+
   const svcColor = new Map();
-  serviceOrder.forEach((svc, i) => svcColor.set(svc, SVC_COLORS[i % SVC_COLORS.length]));
+  layout.serviceOrder.forEach((svc, i) => svcColor.set(svc, SVC_COLORS[i % SVC_COLORS.length]));
 
-  // Sort spans by start time
-  const sortedSpans = [...trace.spans.values()].sort((a, b) => (a.start_ns || 0) - (b.start_ns || 0));
+  const spanById = new Map();
+  for (const sp of visibleSpans) spanById.set(sp.span_id, sp);
 
-  // Index spans and track row positions
-  const spanIdMap = new Map();
-  const spanRow = new Map(); // span_id -> rowIdx
-  for (const span of trace.spans.values()) spanIdMap.set(span.span_id, span);
-  sortedSpans.forEach((span, i) => spanRow.set(span.span_id, i));
+  // Container
+  const container = document.createElement('div');
+  container.className = 'timeline-container';
 
-  // Time range for proportional bar widths
-  const traceRange = trace.maxEndNs - trace.minStartNs;
+  // Time ruler
+  const ruler = document.createElement('div');
+  ruler.className = 'timeline-ruler';
+  ruler.style.width = (LANE_HEADER_W + timelineW + 20) + 'px';
 
-  const totalCols = serviceOrder.length;
-  const totalRows = sortedSpans.length;
-  const svgWidth = LEFT_PAD + totalCols * COL_WIDTH + 16;
-  const svgHeight = TOP_PAD + HEADER_HEIGHT + totalRows * ROW_HEIGHT + 8;
+  // Adaptive tick spacing
+  const tickStep = pickTickStep(pxPerNs);
+  for (let t = 0; t <= traceRange; t += tickStep) {
+    const tick = document.createElement('div');
+    tick.className = 'tick';
+    tick.style.left = (LANE_HEADER_W + t * pxPerNs) + 'px';
+    tick.textContent = fmtDuration(t / 1e6);
+    ruler.appendChild(tick);
+  }
+  container.appendChild(ruler);
 
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('class', 'swimlane-svg');
-  svg.setAttribute('width', svgWidth);
-  svg.setAttribute('height', svgHeight);
-  svg.setAttribute('viewBox', '0 0 ' + svgWidth + ' ' + svgHeight);
+  // Lanes container (relative for SVG overlay)
+  const lanesDiv = document.createElement('div');
+  lanesDiv.className = 'timeline-lanes';
+  lanesDiv.style.width = (LANE_HEADER_W + timelineW + 20) + 'px';
 
-  // Defs: arrowhead markers
-  const defs = document.createElementNS(SVG_NS, 'defs');
-  [['ah','arrowhead'],['ah-err','arrowhead error']].forEach(([id, cls]) => {
-    const m = document.createElementNS(SVG_NS, 'marker');
+  // Track span bar positions (lanesDiv space) for connectors and detail panel
+  const barPositions = new Map(); // span_id -> {x, y, w}
+
+  let laneY = 0;
+  for (const lane of layout.lanes) {
+    const svc = lane.service;
+    const laneHeight = lane.rowCount * ROW_H + LANE_PAD * 2;
+
+    const laneEl = document.createElement('div');
+    laneEl.className = 'timeline-lane';
+    laneEl.style.height = laneHeight + 'px';
+
+    const header = document.createElement('div');
+    header.className = 'lane-header';
+    header.textContent = svc;
+    header.style.color = svcColor.get(svc) || 'var(--info)';
+    laneEl.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'lane-body';
+
+    for (const { span, x, w, subRow } of lane.items) {
+      const isError = span.status === 'ERROR';
+      const color = isError ? '#f7768e' : (svcColor.get(svc) || '#7aa2f7');
+      const top = LANE_PAD + subRow * ROW_H;
+
+      const bar = document.createElement('div');
+      bar.className = 'span-bar';
+      // lane-body already begins after the sticky header, so position with the
+      // header-agnostic offset — adding LANE_HEADER_W here is the +120px bug.
+      bar.style.left = x + 'px';
+      bar.style.top = top + 'px';
+      bar.style.width = w + 'px';
+      bar.style.background = color;
+      bar.dataset.spanId = span.span_id;
+      bar.title = span.span_name + ' (' + fmtDuration(span.duration_ms) + ')';
+
+      // Collapse toggle for spans with children
+      const kids = childCount.get(span.span_id) || 0;
+      if (kids > 0) {
+        const toggle = document.createElement('span');
+        toggle.className = 'span-collapse-toggle';
+        const isCollapsed = collapsedSpans.has(span.span_id);
+        toggle.textContent = isCollapsed ? '\u25B6' : '\u25BC';
+        toggle.title = isCollapsed ? 'Expand ' + kids + ' children' : 'Collapse ' + kids + ' children';
+        toggle.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (!trace.collapsedSpans) trace.collapsedSpans = new Set();
+          if (trace.collapsedSpans.has(span.span_id)) {
+            trace.collapsedSpans.delete(span.span_id);
+          } else {
+            trace.collapsedSpans.add(span.span_id);
+          }
+          trace._lastRenderedSpanCount = -1; // force re-render
+          updateTraceCardBody(trace);
+        });
+        bar.appendChild(toggle);
+      }
+
+      // Label inside bar if wide enough
+      if (w > 50) {
+        const label = document.createElement('span');
+        label.className = 'bar-label';
+        label.textContent = span.span_name;
+        bar.appendChild(label);
+      }
+      if (w > 90) {
+        const dur = document.createElement('span');
+        dur.className = 'bar-dur';
+        dur.textContent = fmtDuration(span.duration_ms);
+        bar.appendChild(dur);
+      }
+
+      // Click to select
+      bar.addEventListener('click', () => {
+        selectSpan(trace, span.span_id, container);
+      });
+
+      body.appendChild(bar);
+
+      // Connector overlay is in lanesDiv space, so add the header gutter back
+      // and anchor at the bar's vertical center (BAR_H, not the row height).
+      barPositions.set(span.span_id, {
+        x: LANE_HEADER_W + x,
+        y: laneY + top + BAR_H / 2,
+        w: w,
+      });
+    }
+
+    laneEl.appendChild(body);
+    lanesDiv.appendChild(laneEl);
+    laneY += laneHeight;
+  }
+
+  // SVG connector overlay
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('class', 'connector-overlay');
+  svg.style.width = (LANE_HEADER_W + timelineW + 20) + 'px';
+  svg.style.height = laneY + 'px';
+
+  // Arrowhead markers
+  const defs = document.createElementNS(svgNS, 'defs');
+  [['ah', ''], ['ah-err', 'err']].forEach(([id, cls]) => {
+    const m = document.createElementNS(svgNS, 'marker');
     m.setAttribute('id', id);
-    m.setAttribute('markerWidth', '8');
-    m.setAttribute('markerHeight', '6');
-    m.setAttribute('refX', '8');
-    m.setAttribute('refY', '3');
+    m.setAttribute('markerWidth', '6');
+    m.setAttribute('markerHeight', '5');
+    m.setAttribute('refX', '6');
+    m.setAttribute('refY', '2.5');
     m.setAttribute('orient', 'auto');
-    const p = document.createElementNS(SVG_NS, 'polygon');
-    p.setAttribute('points', '0 0, 8 3, 0 6');
-    p.setAttribute('class', cls);
+    if (cls) m.setAttribute('class', cls);
+    const p = document.createElementNS(svgNS, 'polygon');
+    p.setAttribute('points', '0 0, 6 2.5, 0 5');
     m.appendChild(p);
     defs.appendChild(m);
   });
   svg.appendChild(defs);
 
-  // Service labels + lane lines
-  for (let i = 0; i < totalCols; i++) {
-    const cx = LEFT_PAD + i * COL_WIDTH + COL_WIDTH / 2;
+  // Draw connectors
+  for (const sp of visibleSpans) {
+    if (!sp.parent_span_id) continue;
+    const parent = spanById.get(sp.parent_span_id);
+    if (!parent || hiddenSpans.has(parent.span_id)) continue;
 
-    const label = document.createElementNS(SVG_NS, 'text');
-    label.setAttribute('x', cx);
-    label.setAttribute('y', TOP_PAD + 14);
-    label.setAttribute('text-anchor', 'middle');
-    label.setAttribute('class', 'svc-label');
-    label.textContent = serviceOrder[i];
-    svg.appendChild(label);
+    const pPos = barPositions.get(parent.span_id);
+    const cPos = barPositions.get(sp.span_id);
+    if (!pPos || !cPos) continue;
 
-    const line = document.createElementNS(SVG_NS, 'line');
-    line.setAttribute('x1', cx);
-    line.setAttribute('y1', TOP_PAD + HEADER_HEIGHT - 2);
-    line.setAttribute('x2', cx);
-    line.setAttribute('y2', svgHeight);
-    line.setAttribute('class', 'lane-line');
-    svg.appendChild(line);
+    const isError = sp.status === 'ERROR';
+    const isCross = parent.service !== sp.service;
+
+    // Single-bend connector: down from parent to child Y, then right to child
+    const x1 = pPos.x + pPos.w;
+    const y1 = pPos.y;
+    const x2 = cPos.x;
+    const y2 = cPos.y;
+
+    const path = document.createElementNS(svgNS, 'path');
+    path.setAttribute('d', 'M' + x1 + ',' + y1 + ' L' + x1 + ',' + y2 + ' L' + x2 + ',' + y2);
+
+    let cls = isCross ? 'cross' : '';
+    if (isError) cls += ' error';
+    if (cls) path.setAttribute('class', cls.trim());
+    if (isCross) path.setAttribute('marker-end', 'url(#' + (isError ? 'ah-err' : 'ah') + ')');
+    if (!isCross) path.setAttribute('stroke-dasharray', '3,2');
+
+    svg.appendChild(path);
   }
 
-  // Helper: row Y center
-  function rowY(idx) { return TOP_PAD + HEADER_HEIGHT + idx * ROW_HEIGHT + ROW_HEIGHT / 2; }
+  lanesDiv.appendChild(svg);
+  container.appendChild(lanesDiv);
 
-  // Helper: lane X center
-  function laneX(svc) { return LEFT_PAD + svcIndex.get(svc) * COL_WIDTH + COL_WIDTH / 2; }
+  // Hover crosshair
+  const crosshair = document.createElement('div');
+  crosshair.className = 'timeline-crosshair';
+  crosshair.style.display = 'none';
+  crosshair.style.height = laneY + 'px';
 
-  // Pass 1: draw parent→child connectors (behind bars)
-  for (const span of sortedSpans) {
-    if (!span.parent_span_id) continue;
-    const parent = spanIdMap.get(span.parent_span_id);
-    if (!parent) continue;
+  const crossLabel = document.createElement('div');
+  crossLabel.className = 'timeline-crosshair-label';
 
-    const parentRowIdx = spanRow.get(parent.span_id);
-    const childRowIdx = spanRow.get(span.span_id);
-    const py = rowY(parentRowIdx);
-    const cy = rowY(childRowIdx);
-    const px = laneX(parent.service);
-    const childX = laneX(span.service);
+  lanesDiv.appendChild(crosshair);
+  lanesDiv.appendChild(crossLabel);
 
-    if (parent.service === span.service) {
-      // Same-service: vertical connector on left side of lane
-      const xOff = px - BAR_MAX_W / 2 - 6;
-      const path = document.createElementNS(SVG_NS, 'path');
-      path.setAttribute('d', 'M' + xOff + ',' + py + ' L' + xOff + ',' + cy + ' L' + (xOff + 6) + ',' + cy);
-      path.setAttribute('class', 'connector');
-      svg.appendChild(path);
-    } else {
-      // Cross-service: angled arrow from parent lane to child lane
-      const isError = span.status === 'ERROR';
-      const errClass = isError ? ' error' : '';
-      const arrow = document.createElementNS(SVG_NS, 'line');
-      arrow.setAttribute('x1', px);
-      arrow.setAttribute('y1', py + BAR_H / 2 + 1);
-      arrow.setAttribute('x2', childX);
-      arrow.setAttribute('y2', cy - BAR_H / 2 - 1);
-      arrow.setAttribute('class', 'cross-arrow' + errClass);
-      arrow.setAttribute('marker-end', 'url(#' + (isError ? 'ah-err' : 'ah') + ')');
-      svg.appendChild(arrow);
+  lanesDiv.addEventListener('mousemove', (e) => {
+    const rect = lanesDiv.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left + lanesDiv.parentElement.scrollLeft;
+    if (mouseX < LANE_HEADER_W || mouseX > LANE_HEADER_W + timelineW) {
+      crosshair.style.display = 'none';
+      crossLabel.style.display = 'none';
+      return;
     }
-  }
+    crosshair.style.display = '';
+    crosshair.style.left = mouseX + 'px';
+    crosshair.style.top = '0';
+    crosshair.style.height = laneY + 'px';
 
-  // Pass 2: draw timing bars + labels (on top of connectors)
-  sortedSpans.forEach((span, rowIdx) => {
-    const y = rowY(rowIdx);
-    const cx = laneX(span.service);
-    const isError = span.status === 'ERROR';
-    const color = isError ? '#f7768e' : (svcColor.get(span.service) || '#7aa2f7');
-
-    // Bar width proportional to duration, minimum visible width
-    const spanDur = (span.end_ns || span.start_ns) - (span.start_ns || 0);
-    let barW = traceRange > 0 ? (spanDur / traceRange) * BAR_MAX_W : BAR_MAX_W;
-    barW = Math.max(8, Math.min(BAR_MAX_W, barW));
-
-    const rect = document.createElementNS(SVG_NS, 'rect');
-    rect.setAttribute('x', cx - barW / 2);
-    rect.setAttribute('y', y - BAR_H / 2);
-    rect.setAttribute('width', barW);
-    rect.setAttribute('height', BAR_H);
-    rect.setAttribute('fill', color);
-    rect.setAttribute('fill-opacity', '0.7');
-    rect.setAttribute('class', 'span-bar');
-    svg.appendChild(rect);
-
-    // Span name label — left of bar (or on bar if wide enough)
-    const nameLabel = truncLabel(span.span_name, 16);
-    const nameTxt = document.createElementNS(SVG_NS, 'text');
-    if (barW > 70) {
-      nameTxt.setAttribute('x', cx);
-      nameTxt.setAttribute('y', y + 3);
-      nameTxt.setAttribute('text-anchor', 'middle');
-    } else {
-      nameTxt.setAttribute('x', cx - barW / 2 - 4);
-      nameTxt.setAttribute('y', y + 3);
-      nameTxt.setAttribute('text-anchor', 'end');
-    }
-    nameTxt.setAttribute('class', 'span-label');
-    nameTxt.textContent = nameLabel;
-    svg.appendChild(nameTxt);
-
-    // Duration label — right of bar
-    const durTxt = document.createElementNS(SVG_NS, 'text');
-    durTxt.setAttribute('x', cx + barW / 2 + 4);
-    durTxt.setAttribute('y', y + 3);
-    durTxt.setAttribute('text-anchor', 'start');
-    durTxt.setAttribute('class', 'span-dur');
-    durTxt.textContent = fmtDuration(span.duration_ms);
-    svg.appendChild(durTxt);
+    const timeOffset = ((mouseX - LANE_HEADER_W) / timelineW) * traceRange;
+    crossLabel.style.display = '';
+    crossLabel.style.left = mouseX + 'px';
+    crossLabel.style.top = '-2px';
+    crossLabel.textContent = fmtDuration(timeOffset / 1e6);
   });
 
-  return svg;
+  lanesDiv.addEventListener('mouseleave', () => {
+    crosshair.style.display = 'none';
+    crossLabel.style.display = 'none';
+  });
+
+  return container;
+}
+
+// ---- Span Detail Panel ----
+
+async function fetchTraceDetail(traceId) {
+  if (traceDetailCache.has(traceId)) return traceDetailCache.get(traceId);
+  const resp = await fetch('/api/trace/' + encodeURIComponent(traceId));
+  if (!resp.ok) return [];
+  const spans = await resp.json();
+  traceDetailCache.set(traceId, spans);
+  return spans;
+}
+
+function selectSpan(trace, spanId, container) {
+  // Deselect previous
+  container.querySelectorAll('.span-bar.selected').forEach(b => b.classList.remove('selected'));
+  // Select new
+  const bar = container.querySelector('[data-span-id="' + spanId + '"]');
+  if (bar) bar.classList.add('selected');
+  trace.selectedSpanId = spanId;
+
+  // Remove existing detail panel
+  const existing = container.parentElement.querySelector('.span-detail-panel');
+  if (existing) existing.remove();
+
+  // Fetch full detail and render
+  const panel = document.createElement('div');
+  panel.className = 'span-detail-panel';
+  panel.innerHTML = '<div style="color:var(--fg2);font-size:11px">Loading...</div>';
+  container.parentElement.appendChild(panel);
+
+  const wsSummary = trace.spans.get(spanId);
+
+  fetchTraceDetail(trace.traceId).then(details => {
+    const detail = details.find(d => d.span_id === spanId);
+    if (detail) {
+      renderSpanDetail(panel, detail, trace);
+    } else if (wsSummary) {
+      // Fallback: show what we have from WebSocket
+      panel.innerHTML = '';
+      renderSpanDetailFallback(panel, wsSummary, trace);
+    } else {
+      panel.innerHTML = '<div style="color:var(--fg2);font-size:11px">Span not found</div>';
+    }
+  }).catch(() => {
+    if (wsSummary) {
+      panel.innerHTML = '';
+      renderSpanDetailFallback(panel, wsSummary, trace);
+    }
+  });
+}
+
+function renderSpanDetail(panel, detail, trace) {
+  panel.innerHTML = '';
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'detail-header';
+  header.innerHTML =
+    '<span class="detail-name">' + esc(detail.span_name) + '</span>' +
+    '<span class="detail-badge">' + esc(detail.service_name) + '</span>' +
+    '<span class="detail-badge">' + esc(detail.kind) + '</span>' +
+    '<span class="' + statusClass(detail.status) + '">' + esc(detail.status) + '</span>' +
+    (detail.status_message ? ' <span style="font-size:11px;color:var(--fg2)">' + esc(detail.status_message) + '</span>' : '') +
+    '<span class="detail-badge">' + fmtDuration(detail.duration_ms) + '</span>';
+
+  const closeBtn = document.createElement('span');
+  closeBtn.className = 'detail-close';
+  closeBtn.textContent = '\u2715';
+  closeBtn.addEventListener('click', () => {
+    panel.remove();
+    const container = panel.parentElement ? panel.parentElement.querySelector('.timeline-container') : null;
+    if (container) container.querySelectorAll('.span-bar.selected').forEach(b => b.classList.remove('selected'));
+  });
+  header.appendChild(closeBtn);
+  panel.appendChild(header);
+
+  // Timing (BigInt subtraction keeps the offset exact at epoch-nanosecond scale)
+  const offset = Number(ns(detail.start_ns) - trace.minStartNs);
+  const timing = document.createElement('div');
+  timing.className = 'detail-timing';
+  timing.textContent = 'offset: +' + fmtDuration(offset / 1e6) + '  |  span_id: ' + detail.span_id;
+  if (detail.parent_span_id) timing.textContent += '  |  parent: ' + detail.parent_span_id;
+  panel.appendChild(timing);
+
+  // Attributes
+  const attrs = detail.attributes || {};
+  const attrKeys = Object.keys(attrs);
+  if (attrKeys.length > 0) {
+    addDetailSection(panel, 'Attributes (' + attrKeys.length + ')', () => {
+      const table = document.createElement('table');
+      table.className = 'detail-table';
+      for (const key of attrKeys) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + esc(key) + '</td><td>' + esc(formatDetailValue(attrs[key])) + '</td>';
+        table.appendChild(tr);
+      }
+      return table;
+    });
+  }
+
+  // Resource attributes
+  const resAttrs = detail.resource_attributes || {};
+  const resKeys = Object.keys(resAttrs);
+  if (resKeys.length > 0) {
+    addDetailSection(panel, 'Resource Attributes (' + resKeys.length + ')', () => {
+      const table = document.createElement('table');
+      table.className = 'detail-table';
+      for (const key of resKeys) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + esc(key) + '</td><td>' + esc(formatDetailValue(resAttrs[key])) + '</td>';
+        table.appendChild(tr);
+      }
+      return table;
+    });
+  }
+
+  // Events
+  if (detail.events && detail.events.length > 0) {
+    addDetailSection(panel, 'Events (' + detail.events.length + ')', () => {
+      const div = document.createElement('div');
+      for (const ev of detail.events) {
+        const evDiv = document.createElement('div');
+        evDiv.className = 'detail-event';
+        const evOffset = Number(ns(ev.time_ns) - trace.minStartNs);
+        evDiv.innerHTML = '<span class="ev-time">+' + fmtDuration(evOffset / 1e6) + '</span>' +
+          '<span class="ev-name">' + esc(ev.name) + '</span>';
+        const evAttrs = ev.attributes || {};
+        const evKeys = Object.keys(evAttrs);
+        if (evKeys.length > 0) {
+          const attrStr = evKeys.map(k => esc(k) + '=' + esc(formatDetailValue(evAttrs[k]))).join(', ');
+          evDiv.innerHTML += ' <span style="color:var(--fg2);font-size:10px">' + attrStr + '</span>';
+        }
+        div.appendChild(evDiv);
+      }
+      return div;
+    });
+  }
+
+  // Links
+  if (detail.links && detail.links.length > 0) {
+    addDetailSection(panel, 'Links (' + detail.links.length + ')', () => {
+      const table = document.createElement('table');
+      table.className = 'detail-table';
+      for (const lk of detail.links) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td>trace: ' + esc(lk.trace_id) + '</td><td>span: ' + esc(lk.span_id) + '</td>';
+        table.appendChild(tr);
+      }
+      return table;
+    });
+  }
+}
+
+function renderSpanDetailFallback(panel, span, trace) {
+  const header = document.createElement('div');
+  header.className = 'detail-header';
+  header.innerHTML =
+    '<span class="detail-name">' + esc(span.span_name) + '</span>' +
+    '<span class="detail-badge">' + esc(span.service) + '</span>' +
+    '<span class="detail-badge">' + esc(span.kind || '') + '</span>' +
+    '<span class="' + statusClass(span.status) + '">' + esc(span.status) + '</span>' +
+    '<span class="detail-badge">' + fmtDuration(span.duration_ms) + '</span>';
+
+  const closeBtn = document.createElement('span');
+  closeBtn.className = 'detail-close';
+  closeBtn.textContent = '\u2715';
+  closeBtn.addEventListener('click', () => panel.remove());
+  header.appendChild(closeBtn);
+  panel.appendChild(header);
+
+  const timing = document.createElement('div');
+  timing.className = 'detail-timing';
+  const offset = Number(ns(span.start_ns) - trace.minStartNs);
+  timing.textContent = 'offset: +' + fmtDuration(offset / 1e6) + '  |  span_id: ' + span.span_id;
+  panel.appendChild(timing);
+
+  const note = document.createElement('div');
+  note.style.cssText = 'font-size:11px;color:var(--fg2);margin-top:4px';
+  note.textContent = 'Full attributes unavailable (API fetch failed)';
+  panel.appendChild(note);
+}
+
+function addDetailSection(panel, title, buildContent) {
+  const section = document.createElement('div');
+  section.className = 'detail-section';
+  const titleEl = document.createElement('div');
+  titleEl.className = 'detail-section-title';
+  titleEl.textContent = title;
+  section.appendChild(titleEl);
+  section.appendChild(buildContent());
+  panel.appendChild(section);
+}
+
+function formatDetailValue(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
 }
 
 function truncLabel(s, max) {
@@ -1045,6 +1293,7 @@ function connect() {
     // Clear trace state on disconnect to avoid stale mixing with backfill
     traceMap.clear();
     rollupElements.clear();
+    traceDetailCache.clear();
     traceCards.innerHTML = '';
     logRollup.clear();
     tLogs.innerHTML = '';
