@@ -1,4 +1,4 @@
-# BOTS.md: Agent Development Guide
+# AGENTS.md — otlp-mcp
 
 Guidance for agents working with this codebase.
 
@@ -95,12 +95,26 @@ Co-Authored-By: Claude <claude@anthropic.com>
 Co-Authored-By: Gemini <gemini@google.com>
 ```
 
-## Cross-Session Handoffs
+## Working Notes
 
-When handing off work:
-- Commit with clear description of state
-- Note what's done and what's next
-- Push to a branch so next session can continue
+Two committed markdown files carry durable work across sessions — each answers a
+different question. Keep them current *as you go*, not at the end.
+
+- **`docs/issues.md`** — *what's not in the code yet?* The open-work backlog: record
+  out-of-scope side quests here before moving on, and **delete an entry when it ships**
+  (move the story to the devlog if it's worth keeping). Code is truth.
+- **`docs/devlog.md`** — a durable narrative from the agent's perspective. Write your
+  story there.
+
+When handing off, commit the durable docs and push to a branch so the next session can
+continue.
+
+## Commit style
+
+Commit and pull request bodies should usually summarize the decisions behind the
+change, **drawn from the conversation with the user**. Commit messages briefly explain
+what happened as context for the more important task of explaining the decisions we
+made.
 
 ## License
 
