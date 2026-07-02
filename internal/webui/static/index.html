@@ -217,7 +217,13 @@ tr.row-error{background:rgba(247,118,142,.06)}
   </div>
 </div>
 
-<script>
+<script type="module">
+import {
+  SVC_COLORS, MAX_MINI_ROWS, ns, cmpNs, traceBounds, serviceOrder,
+  hiddenDescendants, childCounts, positionSpans, packRows,
+  computeTimelineLayout, pickTickStep,
+} from './timeline.mjs';
+
 (function(){
 'use strict';
 
@@ -402,83 +408,35 @@ function addSpanToTrace(span) {
   return trace;
 }
 
+// traceSpanList returns the trace's spans as a plain array for the geometry module.
+function traceSpanList(trace) {
+  return [...trace.spans.values()];
+}
+
 function recalcTrace(trace) {
-  let minStart = Infinity, maxEnd = 0;
+  const spans = traceSpanList(trace);
+
+  // Root span name: prefer a parentless span, else the earliest span.
   let rootSpan = null;
-
-  for (const span of trace.spans.values()) {
+  for (const span of spans) {
     if (!span.parent_span_id) rootSpan = span;
-    if (span.start_ns && span.start_ns < minStart) minStart = span.start_ns;
-    if (span.end_ns && span.end_ns > maxEnd) maxEnd = span.end_ns;
   }
-
   if (rootSpan) {
     trace.rootSpanName = rootSpan.span_name;
   } else {
-    // Pick the earliest span as pseudo-root
     let earliest = null;
-    for (const span of trace.spans.values()) {
-      if (!earliest || span.start_ns < earliest.start_ns) earliest = span;
+    for (const span of spans) {
+      if (!earliest || cmpNs(span.start_ns, earliest.start_ns) < 0) earliest = span;
     }
     if (earliest) trace.rootSpanName = earliest.span_name;
   }
 
-  trace.minStartNs = minStart < Infinity ? minStart : 0;
-  trace.maxEndNs = maxEnd;
-  if (minStart < Infinity && maxEnd > 0) {
-    trace.totalDurationMs = (maxEnd - minStart) / 1e6;
-  }
-}
-
-// BFS service ordering from root span
-function getServiceOrder(trace) {
-  const order = [];
-  const seen = new Set();
-  const spanById = trace.spans;
-
-  // Find root span(s)
-  const roots = [];
-  for (const span of spanById.values()) {
-    if (!span.parent_span_id) roots.push(span);
-  }
-  // If no root, use earliest span
-  if (roots.length === 0) {
-    let earliest = null;
-    for (const span of spanById.values()) {
-      if (!earliest || span.start_ns < earliest.start_ns) earliest = span;
-    }
-    if (earliest) roots.push(earliest);
-  }
-
-  // Build child lookup for O(n) BFS instead of O(n^2)
-  const childrenOf = new Map();
-  for (const span of spanById.values()) {
-    if (span.parent_span_id) {
-      if (!childrenOf.has(span.parent_span_id)) childrenOf.set(span.parent_span_id, []);
-      childrenOf.get(span.parent_span_id).push(span);
-    }
-  }
-
-  // BFS
-  const queue = [...roots];
-  while (queue.length > 0) {
-    const span = queue.shift();
-    if (!seen.has(span.service)) {
-      seen.add(span.service);
-      order.push(span.service);
-    }
-    const children = childrenOf.get(span.span_id) || [];
-    queue.push(...children);
-  }
-
-  // Append orphan services
-  for (const svc of trace.services) {
-    if (!seen.has(svc)) {
-      order.push(svc);
-    }
-  }
-
-  return order;
+  // Bounds are BigInt nanoseconds; totalDurationMs is the only Number form we keep.
+  const b = traceBounds(spans);
+  trace.bounds = b;
+  trace.minStartNs = b.minStart; // BigInt
+  trace.maxEndNs = b.maxEnd;     // BigInt
+  trace.totalDurationMs = Number(b.duration) / 1e6;
 }
 
 // Trace rollup: fingerprint by sorted (service, span_name) pairs
@@ -508,8 +466,8 @@ function renderRollupCard(fp, traces) {
   const ago = Math.round((Date.now() - latest.lastActivity) / 1000);
   const agoStr = ago < 60 ? ago + 's ago' : Math.round(ago / 60) + 'm ago';
 
-  const serviceOrder = getServiceOrder(latest);
-  const chainHtml = serviceOrder.map(s => esc(s)).join('<span class="svc-arrow">\u2192</span>');
+  const svcOrder = serviceOrder(traceSpanList(latest));
+  const chainHtml = svcOrder.map(s => esc(s)).join('<span class="svc-arrow">\u2192</span>');
   const spanNames = [...new Set([...latest.spans.values()].map(s => s.span_name))].join(', ');
 
   header.innerHTML =
@@ -524,60 +482,30 @@ function renderRollupCard(fp, traces) {
   card.classList.toggle('has-error', traces.some(t => t.hasError));
 }
 
-// Service color palette for mini waterfall
-const SVC_COLORS = ['#7aa2f7','#bb9af7','#ff9e64','#9ece6a','#f7768e','#7dcfff','#e0af68','#73daca'];
-
 function renderMiniWaterfallSvg(trace) {
-  const range = trace.maxEndNs - trace.minStartNs;
-  if (!range || trace.spans.size === 0) return '';
+  const spans = traceSpanList(trace);
+  const bounds = trace.bounds || traceBounds(spans);
+  if (bounds.duration <= 0n || spans.length === 0) return '';
 
   const VW = 1000; // viewBox width
   const VH = 16;   // viewBox height
-  const MAX_MINI_ROWS = 4;
 
-  // Assign colors by service order
-  const serviceOrder = getServiceOrder(trace);
+  // Color lanes by BFS service order (shared with the full timeline).
+  const order = serviceOrder(spans);
   const svcColor = new Map();
-  serviceOrder.forEach((svc, i) => svcColor.set(svc, SVC_COLORS[i % SVC_COLORS.length]));
+  order.forEach((svc, i) => svcColor.set(svc, SVC_COLORS[i % SVC_COLORS.length]));
 
-  // Sort spans by start time
-  const sorted = [...trace.spans.values()].sort((a, b) => (a.start_ns || 0) - (b.start_ns || 0));
+  // Shared geometry: position in viewBox units, pack into a capped row count.
+  const positioned = positionSpans(spans, { width: VW, minBarW: 2, bounds });
+  const { items, rowCount } = packRows(positioned, { gap: 0, maxRows: MAX_MINI_ROWS });
 
-  // Greedy row packing: assign each span to first row where it fits
-  const rowEnds = []; // tracks end position of last span on each row
-  const assignments = [];
-  for (const span of sorted) {
-    const x = ((span.start_ns - trace.minStartNs) / range) * VW;
-    let w = ((span.end_ns - span.start_ns) / range) * VW;
-    if (w < 2) w = 2; // minimum visible width
-
-    let row = -1;
-    for (let r = 0; r < rowEnds.length && r < MAX_MINI_ROWS; r++) {
-      if (rowEnds[r] <= x) { row = r; break; }
-    }
-    if (row === -1) {
-      if (rowEnds.length < MAX_MINI_ROWS) {
-        row = rowEnds.length;
-        rowEnds.push(0);
-      } else {
-        // Overflow: pack into row with earliest end
-        row = 0;
-        for (let r = 1; r < MAX_MINI_ROWS; r++) {
-          if (rowEnds[r] < rowEnds[row]) row = r;
-        }
-      }
-    }
-    rowEnds[row] = x + w + 1;
-    assignments.push({ span, x, w, row });
-  }
-
-  const numRows = Math.min(rowEnds.length, MAX_MINI_ROWS);
+  const numRows = Math.min(rowCount, MAX_MINI_ROWS);
   const barH = Math.max(1, Math.floor((VH - (numRows - 1)) / numRows));
   const gap = numRows > 1 ? Math.max(1, Math.floor((VH - numRows * barH) / (numRows - 1))) : 0;
 
   let rects = '';
-  for (const { span, x, w, row } of assignments) {
-    const y = row * (barH + gap);
+  for (const { span, x, w, subRow } of items) {
+    const y = subRow * (barH + gap);
     const color = span.status === 'ERROR' ? '#f7768e' : (svcColor.get(span.service) || '#7aa2f7');
     rects += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + barH + '" fill="' + color + '" rx="1"/>';
   }
@@ -609,8 +537,8 @@ function renderTraceCard(trace) {
   }
 
   // Update header content
-  const serviceOrder = getServiceOrder(trace);
-  const chainHtml = serviceOrder.map(s => esc(s)).join('<span class="svc-arrow">\u2192</span>');
+  const svcOrder = serviceOrder(traceSpanList(trace));
+  const chainHtml = svcOrder.map(s => esc(s)).join('<span class="svc-arrow">\u2192</span>');
   const statusStr = trace.hasError ? 'ERROR' : 'OK';
 
   const header = trace.element.querySelector('.trace-card-header');
@@ -671,88 +599,33 @@ function renderTimeline(trace) {
   const LANE_HEADER_W = 120;
   const ROW_H = 22;
   const LANE_PAD = 4;
-  const RULER_H = 22;
+  const BAR_H = 18;     // visual bar height (CSS .span-bar)
   const MIN_BAR_W = 3;
 
-  const serviceOrder = getServiceOrder(trace);
-  const svcColor = new Map();
-  serviceOrder.forEach((svc, i) => svcColor.set(svc, SVC_COLORS[i % SVC_COLORS.length]));
+  const allSpans = traceSpanList(trace);
 
-  const sortedSpans = [...trace.spans.values()].sort((a, b) => (a.start_ns || 0) - (b.start_ns || 0));
-  const spanById = new Map();
-  for (const sp of sortedSpans) spanById.set(sp.span_id, sp);
+  // Collapse state → hidden descendants. Toggles still need the full child
+  // count, so compute that over every span, not just the visible ones.
+  const collapsedSpans = trace.collapsedSpans || new Set();
+  const hiddenSpans = hiddenDescendants(allSpans, collapsedSpans);
+  const visibleSpans = allSpans.filter(sp => !hiddenSpans.has(sp.span_id));
+  const childCount = childCounts(allSpans);
 
-  const traceStart = trace.minStartNs;
-  const traceRange = trace.maxEndNs - traceStart;
-
-  // Determine timeline pixel width — fit container by default, expand only for dense traces
+  // Timeline pixel width — fit the container, expand only for dense traces.
   const containerWidth = trace.element ? trace.element.offsetWidth - 40 : 600;
-  const availW = Math.max(400, containerWidth - LANE_HEADER_W - 20);
-  const timelineW = availW;
+  const timelineW = Math.max(400, containerWidth - LANE_HEADER_W - 20);
+
+  // Geometry: x is header-agnostic (0 == trace start). The lane-header gutter is
+  // added back only in lanesDiv-space coordinates (ruler ticks, connectors).
+  const layout = computeTimelineLayout(visibleSpans, { width: timelineW, minBarW: MIN_BAR_W, gap: 1 });
+  const traceRange = Number(layout.bounds.duration);
   const pxPerNs = traceRange > 0 ? timelineW / traceRange : 1;
 
-  // Build collapsed set from trace state
-  const collapsedSpans = trace.collapsedSpans || new Set();
+  const svcColor = new Map();
+  layout.serviceOrder.forEach((svc, i) => svcColor.set(svc, SVC_COLORS[i % SVC_COLORS.length]));
 
-  // Determine which spans are hidden by collapse
-  const hiddenSpans = new Set();
-  if (collapsedSpans.size > 0) {
-    // Build children map
-    const childrenOf = new Map();
-    for (const sp of sortedSpans) {
-      if (sp.parent_span_id) {
-        if (!childrenOf.has(sp.parent_span_id)) childrenOf.set(sp.parent_span_id, []);
-        childrenOf.get(sp.parent_span_id).push(sp);
-      }
-    }
-    // BFS from each collapsed span to mark descendants hidden
-    for (const cid of collapsedSpans) {
-      const queue = childrenOf.get(cid) || [];
-      for (let i = 0; i < queue.length; i++) {
-        hiddenSpans.add(queue[i].span_id);
-        const kids = childrenOf.get(queue[i].span_id) || [];
-        for (const k of kids) queue.push(k);
-      }
-    }
-  }
-
-  // Build children count for collapse toggles
-  const childCount = new Map();
-  for (const sp of sortedSpans) {
-    if (sp.parent_span_id) {
-      childCount.set(sp.parent_span_id, (childCount.get(sp.parent_span_id) || 0) + 1);
-    }
-  }
-
-  // Filter visible spans
-  const visibleSpans = sortedSpans.filter(sp => !hiddenSpans.has(sp.span_id));
-
-  // Per-service bin packing
-  const laneSpans = new Map(); // service -> [{span, x, w, subRow}]
-  const laneRows = new Map();  // service -> numSubRows
-  for (const svc of serviceOrder) {
-    const spans = visibleSpans.filter(sp => sp.service === svc);
-    const rowEnds = [];
-    const assignments = [];
-    for (const sp of spans) {
-      const x = LANE_HEADER_W + ((sp.start_ns - traceStart) / traceRange) * timelineW;
-      let w = ((sp.end_ns - sp.start_ns) / traceRange) * timelineW;
-      if (w < MIN_BAR_W) w = MIN_BAR_W;
-
-      let row = -1;
-      for (let r = 0; r < rowEnds.length; r++) {
-        if (rowEnds[r] <= x + 1) { row = r; break; }
-      }
-      if (row === -1) {
-        row = rowEnds.length;
-        rowEnds.push(0);
-      }
-      rowEnds[row] = x + w + 2;
-      assignments.push({ span: sp, x, w, subRow: row });
-    }
-    laneSpans.set(svc, assignments);
-    laneRows.set(svc, Math.max(1, rowEnds.length));
-  }
+  const spanById = new Map();
+  for (const sp of visibleSpans) spanById.set(sp.span_id, sp);
 
   // Container
   const container = document.createElement('div');
@@ -764,11 +637,7 @@ function renderTimeline(trace) {
   ruler.style.width = (LANE_HEADER_W + timelineW + 20) + 'px';
 
   // Adaptive tick spacing
-  const tickSteps = [1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10]; // ns: 1us to 10s
-  let tickStep = tickSteps[tickSteps.length - 1];
-  for (const s of tickSteps) {
-    if (s * pxPerNs >= 60) { tickStep = s; break; }
-  }
+  const tickStep = pickTickStep(pxPerNs);
   for (let t = 0; t <= traceRange; t += tickStep) {
     const tick = document.createElement('div');
     tick.className = 'tick';
@@ -783,35 +652,36 @@ function renderTimeline(trace) {
   lanesDiv.className = 'timeline-lanes';
   lanesDiv.style.width = (LANE_HEADER_W + timelineW + 20) + 'px';
 
-  // Track span bar positions for connectors and detail panel
-  const barPositions = new Map(); // span_id -> {x, y, w, h, el}
+  // Track span bar positions (lanesDiv space) for connectors and detail panel
+  const barPositions = new Map(); // span_id -> {x, y, w}
 
   let laneY = 0;
-  for (const svc of serviceOrder) {
-    const numRows = laneRows.get(svc);
-    const laneHeight = numRows * ROW_H + LANE_PAD * 2;
+  for (const lane of layout.lanes) {
+    const svc = lane.service;
+    const laneHeight = lane.rowCount * ROW_H + LANE_PAD * 2;
 
-    const lane = document.createElement('div');
-    lane.className = 'timeline-lane';
-    lane.style.height = laneHeight + 'px';
+    const laneEl = document.createElement('div');
+    laneEl.className = 'timeline-lane';
+    laneEl.style.height = laneHeight + 'px';
 
     const header = document.createElement('div');
     header.className = 'lane-header';
     header.textContent = svc;
     header.style.color = svcColor.get(svc) || 'var(--info)';
-    lane.appendChild(header);
+    laneEl.appendChild(header);
 
     const body = document.createElement('div');
     body.className = 'lane-body';
 
-    const assignments = laneSpans.get(svc) || [];
-    for (const { span, x, w, subRow } of assignments) {
+    for (const { span, x, w, subRow } of lane.items) {
       const isError = span.status === 'ERROR';
       const color = isError ? '#f7768e' : (svcColor.get(svc) || '#7aa2f7');
       const top = LANE_PAD + subRow * ROW_H;
 
       const bar = document.createElement('div');
       bar.className = 'span-bar';
+      // lane-body already begins after the sticky header, so position with the
+      // header-agnostic offset — adding LANE_HEADER_W here is the +120px bug.
       bar.style.left = x + 'px';
       bar.style.top = top + 'px';
       bar.style.width = w + 'px';
@@ -862,17 +732,17 @@ function renderTimeline(trace) {
 
       body.appendChild(bar);
 
-      // Record position for connector drawing
+      // Connector overlay is in lanesDiv space, so add the header gutter back
+      // and anchor at the bar's vertical center (BAR_H, not the row height).
       barPositions.set(span.span_id, {
-        x: x,
-        y: laneY + top + ROW_H / 2,
+        x: LANE_HEADER_W + x,
+        y: laneY + top + BAR_H / 2,
         w: w,
-        h: 18
       });
     }
 
-    lane.appendChild(body);
-    lanesDiv.appendChild(lane);
+    laneEl.appendChild(body);
+    lanesDiv.appendChild(laneEl);
     laneY += laneHeight;
   }
 
@@ -1050,8 +920,8 @@ function renderSpanDetail(panel, detail, trace) {
   header.appendChild(closeBtn);
   panel.appendChild(header);
 
-  // Timing
-  const offset = detail.start_ns - trace.minStartNs;
+  // Timing (BigInt subtraction keeps the offset exact at epoch-nanosecond scale)
+  const offset = Number(ns(detail.start_ns) - trace.minStartNs);
   const timing = document.createElement('div');
   timing.className = 'detail-timing';
   timing.textContent = 'offset: +' + fmtDuration(offset / 1e6) + '  |  span_id: ' + detail.span_id;
@@ -1097,7 +967,7 @@ function renderSpanDetail(panel, detail, trace) {
       for (const ev of detail.events) {
         const evDiv = document.createElement('div');
         evDiv.className = 'detail-event';
-        const evOffset = ev.time_ns - trace.minStartNs;
+        const evOffset = Number(ns(ev.time_ns) - trace.minStartNs);
         evDiv.innerHTML = '<span class="ev-time">+' + fmtDuration(evOffset / 1e6) + '</span>' +
           '<span class="ev-name">' + esc(ev.name) + '</span>';
         const evAttrs = ev.attributes || {};
@@ -1146,7 +1016,7 @@ function renderSpanDetailFallback(panel, span, trace) {
 
   const timing = document.createElement('div');
   timing.className = 'detail-timing';
-  const offset = span.start_ns - trace.minStartNs;
+  const offset = Number(ns(span.start_ns) - trace.minStartNs);
   timing.textContent = 'offset: +' + fmtDuration(offset / 1e6) + '  |  span_id: ' + span.span_id;
   panel.appendChild(timing);
 

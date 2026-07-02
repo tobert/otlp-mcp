@@ -3,8 +3,10 @@ package webui
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/tobert/otlp-mcp/internal/storage"
@@ -86,6 +88,44 @@ func TestFormatAttrValueDepthGuard(t *testing.T) {
 	out := formatAttrValue(v, 0)
 	if _, err := json.Marshal(out); err != nil {
 		t.Fatalf("marshal nested result: %v", err)
+	}
+}
+
+// TestDurationMs verifies the clamp: a span whose end precedes its start (clock
+// skew, or an unsigned underflow upstream) reports zero, not a wrapped value.
+func TestDurationMs(t *testing.T) {
+	if got := durationMs(1_000_000, 1_500_000); got != 0.5 {
+		t.Errorf("durationMs normal = %v, want 0.5", got)
+	}
+	if got := durationMs(0, 0); got != 0 {
+		t.Errorf("durationMs zero = %v, want 0", got)
+	}
+	// end < start must clamp to 0 rather than wrap toward ~1.8e10 ms.
+	if got := durationMs(1_500_000, 1_000_000); got != 0 {
+		t.Errorf("durationMs end<start = %v, want 0", got)
+	}
+}
+
+// TestTimelineModuleServed confirms the geometry ES module is reachable with a
+// JavaScript content type so the browser will execute it as a module.
+func TestTimelineModuleServed(t *testing.T) {
+	_, ts := newTestServer(t)
+
+	resp, err := http.Get(ts.URL + "/ui/timeline.mjs")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/javascript") {
+		t.Errorf("Content-Type = %q, want text/javascript", ct)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "export function computeTimelineLayout") {
+		t.Errorf("module body missing computeTimelineLayout export")
 	}
 }
 
@@ -203,6 +243,13 @@ func TestHandleTraceFull(t *testing.T) {
 	}
 	if d.DurationMs != 500 {
 		t.Errorf("DurationMs = %v, want 500", d.DurationMs)
+	}
+	// Nanosecond fields are decimal strings (BigInt on the client), not numbers.
+	if d.StartNs != "1000000000" || d.EndNs != "1500000000" {
+		t.Errorf("StartNs/EndNs = %q/%q, want 1000000000/1500000000", d.StartNs, d.EndNs)
+	}
+	if len(d.Events) == 1 && d.Events[0].TimeNs != "1200000000" {
+		t.Errorf("event TimeNs = %q, want 1200000000", d.Events[0].TimeNs)
 	}
 	if d.ServiceName != "checkout" {
 		t.Errorf("ServiceName = %q", d.ServiceName)

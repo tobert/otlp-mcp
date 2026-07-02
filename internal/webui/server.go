@@ -18,7 +18,7 @@ import (
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
-//go:embed static/index.html
+//go:embed static/index.html static/timeline.mjs
 var staticFiles embed.FS
 
 // Server serves the embedded web UI and WebSocket updates.
@@ -66,6 +66,7 @@ func securityHeaders(next http.HandlerFunc) http.HandlerFunc {
 
 // RegisterRoutes attaches web UI routes to an existing ServeMux.
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /ui/timeline.mjs", securityHeaders(s.handleTimelineModule))
 	mux.HandleFunc("GET /ui/", securityHeaders(s.handleUI))
 	mux.HandleFunc("GET /ui", securityHeaders(s.handleUIRedirect))
 	mux.HandleFunc("GET /api/services", securityHeaders(s.handleServices))
@@ -118,6 +119,17 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(data)
+}
+
+// handleTimelineModule serves the embedded timeline geometry ES module.
+func (s *Server) handleTimelineModule(w http.ResponseWriter, r *http.Request) {
+	data, err := staticFiles.ReadFile("static/timeline.mjs")
+	if err != nil {
+		http.Error(w, "module not found", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 	w.Write(data)
 }
 
@@ -212,8 +224,10 @@ type wsSpanSummary struct {
 	Kind         string  `json:"kind"`
 	DurationMs   float64 `json:"duration_ms"`
 	Status       string  `json:"status"`
-	StartNs      uint64  `json:"start_ns"`
-	EndNs        uint64  `json:"end_ns"`
+	// StartNs/EndNs are decimal strings, not numbers: epoch nanoseconds (~1.78e18)
+	// exceed JS Number.MAX_SAFE_INTEGER, so the browser must parse them as BigInt.
+	StartNs string `json:"start_ns"`
+	EndNs   string `json:"end_ns"`
 }
 
 type wsLogSummary struct {
@@ -340,7 +354,6 @@ func (s *Server) sendWSUpdate(ctx context.Context, conn *websocket.Conn,
 			if filter.Service != "" && span.ServiceName != filter.Service {
 				continue
 			}
-			durationNs := span.Span.EndTimeUnixNano - span.Span.StartTimeUnixNano
 			status := "UNSET"
 			if span.Span.Status != nil {
 				switch span.Span.Status.Code {
@@ -364,10 +377,10 @@ func (s *Server) sendWSUpdate(ctx context.Context, conn *websocket.Conn,
 				Service:      span.ServiceName,
 				SpanName:     span.SpanName,
 				Kind:         kind,
-				DurationMs:   float64(durationNs) / 1e6,
+				DurationMs:   durationMs(span.Span.StartTimeUnixNano, span.Span.EndTimeUnixNano),
 				Status:       status,
-				StartNs:      span.Span.StartTimeUnixNano,
-				EndNs:        span.Span.EndTimeUnixNano,
+				StartNs:      nsStr(span.Span.StartTimeUnixNano),
+				EndNs:        nsStr(span.Span.EndTimeUnixNano),
 			})
 		}
 		*lastTracePos = curTracePos
@@ -439,6 +452,22 @@ func (s *Server) sendWSUpdate(ctx context.Context, conn *websocket.Conn,
 	}
 }
 
+// nsStr renders unix nanoseconds as a decimal string. The web UI parses these
+// as BigInt because the values exceed JS Number.MAX_SAFE_INTEGER.
+func nsStr(nanos uint64) string {
+	return strconv.FormatUint(nanos, 10)
+}
+
+// durationMs returns (end-start) in milliseconds, clamping end up to start so a
+// span with end<start (clock skew or unsigned underflow) reads as zero rather
+// than wrapping to an astronomical duration.
+func durationMs(start, end uint64) float64 {
+	if end < start {
+		end = start
+	}
+	return float64(end-start) / 1e6
+}
+
 // formatNanoTime converts unix nanoseconds to a human-readable time string.
 func formatNanoTime(nanos uint64) string {
 	if nanos == 0 {
@@ -456,8 +485,8 @@ type spanDetail struct {
 	ServiceName   string         `json:"service_name"`
 	SpanName      string         `json:"span_name"`
 	Kind          string         `json:"kind"`
-	StartNs       uint64         `json:"start_ns"`
-	EndNs         uint64         `json:"end_ns"`
+	StartNs       string         `json:"start_ns"`
+	EndNs         string         `json:"end_ns"`
 	DurationMs    float64        `json:"duration_ms"`
 	Status        string         `json:"status"`
 	StatusMessage string         `json:"status_message,omitempty"`
@@ -469,7 +498,7 @@ type spanDetail struct {
 
 type spanEvent struct {
 	Name       string         `json:"name"`
-	TimeNs     uint64         `json:"time_ns"`
+	TimeNs     string         `json:"time_ns"`
 	Attributes map[string]any `json:"attributes"`
 }
 
@@ -517,8 +546,6 @@ func (s *Server) handleTrace(w http.ResponseWriter, r *http.Request) {
 			statusMsg = sp.Status.Message
 		}
 
-		durationNs := sp.EndTimeUnixNano - sp.StartTimeUnixNano
-
 		d := spanDetail{
 			TraceID:       stored.TraceID,
 			SpanID:        stored.SpanID,
@@ -526,9 +553,9 @@ func (s *Server) handleTrace(w http.ResponseWriter, r *http.Request) {
 			ServiceName:   stored.ServiceName,
 			SpanName:      stored.SpanName,
 			Kind:          strings.TrimPrefix(sp.Kind.String(), "SPAN_KIND_"),
-			StartNs:       sp.StartTimeUnixNano,
-			EndNs:         sp.EndTimeUnixNano,
-			DurationMs:    float64(durationNs) / 1e6,
+			StartNs:       nsStr(sp.StartTimeUnixNano),
+			EndNs:         nsStr(sp.EndTimeUnixNano),
+			DurationMs:    durationMs(sp.StartTimeUnixNano, sp.EndTimeUnixNano),
 			Status:        status,
 			StatusMessage: statusMsg,
 			Attributes:    extractAttrs(sp.Attributes),
@@ -544,7 +571,7 @@ func (s *Server) handleTrace(w http.ResponseWriter, r *http.Request) {
 		for _, ev := range sp.Events {
 			d.Events = append(d.Events, spanEvent{
 				Name:       ev.Name,
-				TimeNs:     ev.TimeUnixNano,
+				TimeNs:     nsStr(ev.TimeUnixNano),
 				Attributes: extractAttrs(ev.Attributes),
 			})
 		}
